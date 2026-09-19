@@ -231,6 +231,8 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
   font-variant-numeric:tabular-nums;pointer-events:none;
 }
 .tag.fire{color:var(--ac-fire)}
+.seta-vento{pointer-events:none}
+.seta-vento svg{display:block;overflow:visible}
 .ref-icon{width:18px;height:18px;border-radius:50%;border:2px solid var(--ink);
           background:rgba(240,233,226,.22);box-shadow:0 0 0 2px var(--void)}
 .ring-lbl,.brg-lbl{
@@ -513,7 +515,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
     Vias: derivadas das naturezas do PROCIV (4305 limpeza de via, 3301 queda de árvore,
     3313 movimento de massa, 3321 cabos). Não é um registo de estradas cortadas — a ANEPC não publica um.
     Ausência de marcador nunca significa via livre.<br>
-    Meteorologia: Open-Meteo, vento a 10 m, não corrigido para orografia.<br>
+    Meteorologia: Open-Meteo. O painel mostra o vento na tua posição; as setas no mapa usam o vento pedido em cada incêndio, que a 30 km pode ser de outro quadrante. Seta laranja = vento medido ali; seta cinzenta = sem leitura própria, a usar o da tua posição. Vento a 10 m, não corrigido para orografia — em vale encaixado a direção real pode divergir muito.<br>
     Focos e área ardida: EFFIS/Copernicus — ~2 passagens/dia; a área ardida MODIS só deteta acima de ~40 ha.<br>
     Potência radiativa e risco: LSA-SAF/IPMA (MSG/SEVIRI) — 15 em 15 min, pixel de ~3 km.<br>
     Aeronaves: redes ADS-B comunitárias — só quem transmite e é recebido; cobertura em vale é fraca.<br>
@@ -581,7 +583,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-19.2";
+var VERSAO = "2026-09-19.3";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -917,6 +919,7 @@ function loadIncidents(){
     DIAG.incidents = { ok:true, via:fontes.join(" + ")||"—", msg:note };
     renderIncidents(); renderRoads(); renderDiag();
     if (radarReady) drawFires();
+    loadFireWinds();          /* vento próprio de cada incêndio */
   });
 }
 
@@ -944,8 +947,85 @@ function loadWeather(){
 }
 
 /* ============================================================
-   AERONAVES
+   VENTO EM CADA INCÊNDIO
+   ------------------------------------------------------------
+   O vento do painel é o da posição de referência. Um incêndio a
+   30 km pode ter vento de outro quadrante, e é a direção NO fogo
+   que decide para onde ele corre — por isso pede-se o vento de
+   cada um. O Open-Meteo aceita várias coordenadas num só pedido.
    ============================================================ */
+var ventoFogo = {};          /* numero da ocorrência -> {dir, speed} */
+
+function loadFireWinds(){
+  var fogos = incidents.filter(ehIncendio).filter(function(f){
+    return isFinite(f.lat) && isFinite(f.lng);
+  }).slice(0, 40);
+  if (!fogos.length){ ventoFogo = {}; return Promise.resolve(); }
+
+  var la = fogos.map(function(f){ return f.lat.toFixed(3); }).join(",");
+  var lo = fogos.map(function(f){ return f.lng.toFixed(3); }).join(",");
+
+  return fetchVia("https://api.open-meteo.com/v1/forecast?latitude="+la+"&longitude="+lo+
+      "&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m&timezone=Europe%2FLisbon", 13000)
+    .then(function(r){
+      /* uma localização devolve objeto, várias devolvem array */
+      var d = r.data;
+      var arr = Array.isArray(d) ? d : [d];
+      var novo = {};
+      fogos.forEach(function(f, i){
+        var c = arr[i] && arr[i].current;
+        if (!c || !isFinite(c.wind_direction_10m)) return;
+        novo[f.numero || (f.lat+","+f.lng)] = {
+          dir: c.wind_direction_10m, speed: c.wind_speed_10m, gust: c.wind_gusts_10m
+        };
+      });
+      ventoFogo = novo;
+      renderVento();
+    })
+    .catch(function(){ /* fica a seta com o vento da referência */ renderVento(); });
+}
+
+/* Seta a sair do incêndio, na direção em que o fogo tende a correr. */
+function setaIcon(paraOnde, vel, local){
+  var comp = 24 + Math.min(16, (vel||0) * 0.7);    /* mais vento, seta maior */
+  var esp  = local ? 3.4 : 2.6;
+  var cor  = local ? cssVar("--orange") : cssVar("--ink-mute");
+  var H = 96;                                       /* caixa fixa, para rodar bem */
+  return L.divIcon({
+    className:"seta-vento",
+    html:'<svg width="'+H+'" height="'+H+'" viewBox="0 0 '+H+' '+H+'" '+
+         'style="transform:rotate('+paraOnde.toFixed(1)+'deg)">'+
+         '<g stroke="#0C0A09" stroke-width="'+(esp+2.4)+'" stroke-linecap="round" fill="none">'+
+           '<line x1="'+(H/2)+'" y1="'+(H/2-6)+'" x2="'+(H/2)+'" y2="'+(H/2-comp)+'"/></g>'+
+         '<g stroke="'+cor+'" stroke-width="'+esp+'" stroke-linecap="round" fill="none">'+
+           '<line x1="'+(H/2)+'" y1="'+(H/2-6)+'" x2="'+(H/2)+'" y2="'+(H/2-comp)+'"/></g>'+
+         '<polygon points="'+(H/2)+','+(H/2-comp-7)+' '+(H/2-5.5)+','+(H/2-comp+4)+' '+
+             (H/2+5.5)+','+(H/2-comp+4)+'" fill="'+cor+'" stroke="#0C0A09" stroke-width="1.2"/>'+
+         '</svg>',
+    iconSize:[H,H], iconAnchor:[H/2,H/2]
+  });
+}
+
+function renderVento(){
+  if (view !== "sitrep") return;
+  gVentoS.clearLayers();
+
+  var fogos = incidents.filter(ehIncendio);
+  fogos.forEach(function(f){
+    var k = f.numero || (f.lat+","+f.lng);
+    var v = ventoFogo[k];
+    var local = !!v;
+    /* sem vento próprio, usa o da referência e assinala-o como tal */
+    if (!v && wx) v = { dir:wx.dir, speed:wx.speed, gust:wx.gust };
+    if (!v || !isFinite(v.dir)) return;
+
+    var para = (v.dir + 180) % 360;
+    L.marker([f.lat, f.lng], {
+      icon: setaIcon(para, v.speed, local),
+      interactive: false, zIndexOffset: 400
+    }).addTo(gVentoS);
+  });
+}
 function fromOpenSky(st, srv){
   var now = srv || Math.floor(Date.now()/1000);
   return (st||[]).filter(function(s){ return s && isFinite(s[6]) && isFinite(s[5]); })
@@ -1208,6 +1288,7 @@ var lBaWk   = wms("modis.ba.poly.week",   { opacity:0.55 }).addTo(mapS);
 var lBaSea  = wms("modis.ba.poly.season", { opacity:0.45 });
 
 var gIncS = L.layerGroup().addTo(mapS);
+var gVentoS = L.layerGroup().addTo(mapS);
 var gRoadS = L.layerGroup().addTo(mapS);
 var gAcS = L.layerGroup().addTo(mapS);
 var gTrackS = L.layerGroup().addTo(mapS);
@@ -1215,7 +1296,8 @@ var gDropS = L.layerGroup().addTo(mapS);
 
 var ctlS = L.control.layers(
   { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM },
-  { "Ocorrências":gIncS, "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
+  { "Ocorrências":gIncS, "Setas de propagação":gVentoS,
+    "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
     "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
     "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
     "Área ardida — VIIRS NRT":lBaNrt, "Área ardida — hoje":lBaDay,
@@ -1676,8 +1758,13 @@ function renderIncidents(){
     var baTot = (ba && isFinite(ba.total)) ? ba.total : null;
     function ha(v){ return !isFinite(v) ? "—" : (v>=100?Math.round(v).toLocaleString("pt-PT"):v.toFixed(1)); }
 
-    /* estás a sotavento? o fogo corre no rumo `spreadTo` */
-    var downwind = spreadTo !== null && e.dist <= 25 && angDiff(e.brgToRef, spreadTo) <= 40;
+    /* o vento no próprio incêndio manda sobre o da referência */
+    var vf = ventoFogo[i.numero || (i.lat+","+i.lng)];
+    var dirFogo = vf && isFinite(vf.dir) ? vf.dir : (wx ? wx.dir : null);
+    var paraFogo = dirFogo === null ? null : (dirFogo + 180) % 360;
+
+    /* estás a sotavento? o fogo corre no rumo `paraFogo` */
+    var downwind = paraFogo !== null && e.dist <= 25 && angDiff(e.brgToRef, paraFogo) <= 40;
 
     html += '<div class="inc '+cls+'" data-lat="'+i.lat+'" data-lng="'+i.lng+'">'+
       '<div class="inc-top"><span class="inc-where">'+esc(i.freguesia||i.concelho||"—")+'</span>'+
@@ -1693,6 +1780,9 @@ function renderIncidents(){
         (i.hour?'<span class="res">desde '+esc(i.hour)+'</span>':'')+
         (i.duracaoMin?'<span class="res">'+dur(i.duracaoMin)+'</span>':'')+
         (i.fase?'<span class="res">'+esc(i.fase)+'</span>':'')+
+        (paraFogo!==null ? '<span class="res" style="color:var(--orange)" title="'+
+          (vf?'vento medido neste incêndio':'vento da tua posição, aproximação')+'">→ '+
+          compass(paraFogo)+(vf?' '+Math.round(vf.speed)+' km/h':' (aprox.)')+'</span>' : '')+
       '</div>'+
       (baTot!==null && baTot>0 ? '<div class="ba"><span class="ba-tot">'+ha(baTot)+' ha</span>'+
         '<span class="ba-brk">povoamento '+ha(ba.povoamento)+' · mato '+ha(ba.mato)+
@@ -1711,12 +1801,16 @@ function renderIncidents(){
       '<span class="mono">'+(hasM ? sh(man)+' operacionais · '+sh(ter)+' veículos · '+sh(aer)+' aéreos'
                                   : 'meios não reportados')+'</span><br>'+
       (i.duracaoMin?'<span class="mono">a arder há '+dur(i.duracaoMin)+'</span><br>':'')+
+      (paraFogo!==null ? '<span class="mono">propaga para '+compass(paraFogo)+' · '+
+        Math.round(paraFogo)+'°'+(vf?' · vento '+Math.round(vf.speed)+' km/h aqui'
+                                    :' (vento da tua posição)')+'</span><br>' : '')+
       '<span class="mono">'+e.dist.toFixed(1)+' km de ti</span>'
     ).addTo(gIncS);
   });
 
   body.innerHTML = html;
   bindRows(body, ".inc", mapS, 13);
+  renderVento();
 }
 
 function renderRoads(){
