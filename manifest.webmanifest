@@ -1,0 +1,28 @@
+{
+  "name": "SITREP Arganil",
+  "short_name": "SITREP",
+  "description": "Consciência situacional para incêndios rurais: ocorrências da ANEPC, vento e propagação, aeronaves de combate e descargas inferidas.",
+  "id": "/sitrep-arganil/",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#13100E",
+  "theme_color": "#13100E",
+  "categories": ["utilities", "navigation", "weather"],
+  "lang": "pt-PT",
+  "dir": "ltr",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Abrir no Radar",
+      "short_name": "Radar",
+      "url": "./?vista=radar",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

@@ -1,0 +1,2195 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SITREP Arganil</title>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#13100E">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SITREP">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png" sizes="192x192">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+/* ============================================================
+   Uma aplicação, duas vistas. Os dados são obtidos uma só vez;
+   SITREP e Radar são apenas maneiras diferentes de os ler.
+   ============================================================ */
+:root{
+  --ground:#13100E;
+  --panel:#1C1815;
+  --panel-2:#221D19;
+  --rule:#2E2723;
+  --rule-hi:#41372F;
+  --ink:#F0E9E2;
+  --ink-mid:#C4B7AC;
+  --ink-mute:#93857B;
+
+  --red:#E8442A;
+  --orange:#F08A22;
+  --amber:#DFBE47;
+  --green:#5FA98B;
+  --blue:#5AA6D6;
+  --violet:#9A7FC4;
+
+  --void:#050607;
+  --hud:rgba(10,12,14,.88);
+  --ring:#49606E;
+  --ring-hi:#7C97A8;
+  --edge:#9FBACB;
+  --mask:#000000;
+  --ac-fire:#FFA733;
+  --ac-gen:#687A88;
+  --drop:#FF3B2F;
+
+  --f-cond:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --gut:16px;
+  padding-top:env(safe-area-inset-top,0px);
+  color-scheme:dark;
+}
+
+body.dia{
+  --ground:#E8E6E0;
+  --panel:#FBFAF7;
+  --panel-2:#F1EFE9;
+  --rule:#D3CFC6;
+  --rule-hi:#B3ADA1;
+  --ink:#1A1714;
+  --ink-mid:#4B443C;
+  --ink-mute:#7A7166;
+
+  --red:#B81E12;
+  --orange:#9A5600;
+  --amber:#7D6410;
+  --green:#2E6A52;
+  --blue:#1F5F86;
+  --violet:#5A4482;
+
+  --void:#E8E6E0;
+  --hud:rgba(252,251,248,.92);
+  --ring:#7C8B95;
+  --ring-hi:#47565F;
+  --edge:#2E3A42;
+  --mask:#F2F0EA;
+  --ac-fire:#9A5600;
+  --ac-gen:#3D4A55;
+  --drop:#B81E12;
+  color-scheme:light;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground);color:var(--ink);
+  font-family:var(--f-body);font-size:15px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%}
+[hidden]{display:none!important}
+
+/* aviso de ausência de rede: num painel de emergência, o utilizador
+   tem de saber que está a olhar para dados parados */
+.offbar{
+  position:sticky;top:0;z-index:950;
+  padding:8px var(--gut);
+  background:var(--red);color:#fff;
+  font-family:var(--f-cond);font-size:13.5px;font-weight:600;
+  letter-spacing:.06em;text-align:center;
+}
+
+/* ---------- barra superior ---------- */
+.topbar{
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:900;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:9px var(--gut);
+  background:var(--panel);border-bottom:1px solid var(--rule);
+}
+.brand{display:flex;align-items:baseline;gap:9px;margin-right:auto;min-width:0}
+.brand h1{
+  font-family:var(--f-cond);font-size:20px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;margin:0;color:var(--ink);
+}
+.brand .sub{
+  font-family:var(--f-cond);font-size:11.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-mute);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.clock{
+  font-family:var(--f-mono);font-size:13px;
+  font-variant-numeric:tabular-nums;color:var(--ink-mid);
+}
+
+/* seletor de vista */
+.seg{display:flex;border:1px solid var(--rule-hi);border-radius:2px;overflow:hidden}
+.seg button{
+  font-family:var(--f-cond);font-size:13px;font-weight:600;
+  letter-spacing:.11em;text-transform:uppercase;
+  color:var(--ink-mute);background:var(--panel-2);
+  border:none;padding:8px 15px;cursor:pointer;
+  transition:background .12s,color .12s;
+}
+.seg button + button{border-left:1px solid var(--rule-hi)}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--orange);color:#13100E}
+body.dia .seg button[aria-pressed="true"]{color:#FBFAF7}
+.seg button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+
+.btn{
+  font-family:var(--f-cond);font-size:13px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink);background:var(--panel-2);
+  border:1px solid var(--rule-hi);border-radius:2px;
+  padding:8px 13px;cursor:pointer;transition:background .12s,border-color .12s;
+}
+.btn:hover{border-color:var(--orange);color:var(--orange)}
+.btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.btn[aria-pressed="true"]{background:var(--panel);border-color:var(--orange);color:var(--orange)}
+
+/* ---------- barra da chave ---------- */
+.keybar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:11px var(--gut) 12px;
+  background:var(--panel-2);border-bottom:1px solid var(--rule);
+}
+.keybar label{
+  font-family:var(--f-cond);font-size:12px;font-weight:600;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--ink-mute);
+}
+.keybar input{
+  flex:1 1 260px;min-width:0;
+  font-family:var(--f-mono);font-size:13px;color:var(--ink);
+  background:var(--ground);border:1px solid var(--rule-hi);
+  border-radius:2px;padding:7px 10px;
+}
+.keynote{
+  flex:1 1 100%;margin:0;
+  font-family:var(--f-mono);font-size:10.5px;line-height:1.6;color:var(--ink-mute);
+}
+.keynote span{color:var(--ink-mid)}
+
+/* ---------- mapas ---------- */
+.mapwrap{position:relative}
+#mapS{height:56vh;min-height:320px;width:100%;background:var(--void);
+      border-bottom:1px solid var(--rule)}
+#mapR{position:absolute;inset:0;background:var(--void)}
+#viewRadar{position:fixed;left:0;right:0;bottom:0;
+           top:calc(env(safe-area-inset-top,0px) + 52px);}
+
+.leaflet-container{background:var(--void);font-family:var(--f-body)}
+.leaflet-control-attribution{
+  background:var(--hud)!important;color:var(--ink-mute)!important;font-size:10px!important;
+}
+.leaflet-control-attribution a{color:var(--ink-mid)!important}
+.leaflet-bar a{background:var(--panel)!important;color:var(--ink)!important;
+               border-color:var(--rule-hi)!important}
+.leaflet-bar a:hover{background:var(--panel-2)!important}
+.leaflet-control-layers{
+  background:var(--panel)!important;color:var(--ink)!important;
+  border:1px solid var(--rule-hi)!important;border-radius:2px!important;
+  font-family:var(--f-body)!important;font-size:13px!important;
+}
+.leaflet-control-layers-separator{border-top-color:var(--rule)!important}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{
+  background:var(--panel);color:var(--ink);
+  border:1px solid var(--rule-hi);border-radius:2px;
+}
+.leaflet-popup-content{margin:10px 13px;font-family:var(--f-body);font-size:13.5px;line-height:1.5}
+.leaflet-popup-content b{font-family:var(--f-cond);font-size:15px;letter-spacing:.04em;text-transform:uppercase}
+.leaflet-popup-content .mono{font-family:var(--f-mono);font-size:12px;color:var(--ink-mid)}
+a.leaflet-popup-close-button{color:var(--ink-mute)!important}
+
+/* base escura do radar: afunda o mapa para os dados saltarem */
+#mapR .leaflet-tile-pane{filter:grayscale(1) brightness(.82) contrast(1.15)}
+#mapR .leaflet-pane.leaflet-labels-pane{filter:grayscale(1) brightness(1.35) contrast(1.1)}
+body.dia #mapR .leaflet-tile-pane{filter:invert(1) grayscale(1) brightness(1.02) contrast(.92)}
+body.dia #mapR .leaflet-pane.leaflet-labels-pane{filter:invert(1) grayscale(1) brightness(.72) contrast(1.3)}
+body.osmfall #mapR .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) grayscale(1) brightness(.62) contrast(1.35)}
+body.dia.osmfall #mapR .leaflet-tile-pane{filter:grayscale(1) brightness(1.04) contrast(.9)}
+
+/* ---------- aeronaves, comum às duas vistas ---------- */
+.ac-sym{position:relative;width:22px;height:22px;overflow:visible}
+.ac-sym svg{display:block;position:absolute;left:0;top:0;
+            filter:drop-shadow(0 0 4px rgba(0,0,0,.95));will-change:transform}
+body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
+.tag{
+  position:absolute;left:26px;top:-1px;
+  font-family:var(--f-mono);font-size:10px;font-weight:600;line-height:1.25;
+  white-space:nowrap;color:var(--ac-gen);
+  text-shadow:0 0 4px var(--void),0 0 2px var(--void);
+  font-variant-numeric:tabular-nums;pointer-events:none;
+}
+.tag.fire{color:var(--ac-fire)}
+.ref-icon{width:18px;height:18px;border-radius:50%;border:2px solid var(--ink);
+          background:rgba(240,233,226,.22);box-shadow:0 0 0 2px var(--void)}
+.ring-lbl,.brg-lbl{
+  font-family:var(--f-mono);white-space:nowrap;text-align:center;
+  font-variant-numeric:tabular-nums;
+  text-shadow:0 0 4px var(--void),0 0 2px var(--void);
+}
+.ring-lbl{font-size:9px;color:var(--ink-mute);letter-spacing:.02em}
+.ring-lbl.hi{color:var(--ink-mid);font-weight:600}
+.brg-lbl{font-size:9.5px;font-weight:600;color:var(--ink-mid);letter-spacing:.06em}
+
+/* foto no popup */
+.pp-photo{margin-top:8px}
+.pp-img{display:block;width:100%;height:auto;border:1px solid var(--rule-hi)}
+.pp-cred{font-size:9.5px;color:var(--ink-mute);margin-top:3px;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--f-mono)}
+.pp-wait{font-size:10px;color:var(--ink-mute);margin-top:6px;font-style:italic}
+
+/* ---------- painéis do SITREP ---------- */
+.deck{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));
+  gap:1px;background:var(--rule);border-bottom:1px solid var(--rule);
+}
+.pane{background:var(--panel);padding:0 0 4px;display:flex;flex-direction:column;min-width:0}
+.pane-head{display:flex;align-items:center;gap:9px;padding:11px var(--gut) 9px;
+           border-bottom:1px solid var(--rule)}
+.pane-head h2{
+  font-family:var(--f-cond);font-size:14px;font-weight:700;
+  letter-spacing:.15em;text-transform:uppercase;margin:0;color:var(--ink-mid);
+}
+.count{
+  font-family:var(--f-mono);font-size:11px;font-weight:600;padding:2px 7px;
+  border-radius:2px;background:var(--panel-2);border:1px solid var(--rule-hi);
+  color:var(--ink-mid);font-variant-numeric:tabular-nums;
+}
+.pane-body{padding:0 var(--gut);overflow-y:auto;max-height:430px}
+.pane-note{font-family:var(--f-mono);font-size:11px;color:var(--ink-mute);
+           padding:8px var(--gut) 4px;line-height:1.5}
+.state{padding:22px var(--gut);font-size:14px;color:var(--ink-mute);line-height:1.55}
+.state.err{color:var(--orange)}
+.state.err code{font-family:var(--f-mono);font-size:11.5px;color:var(--ink-mute);
+                display:block;margin-top:7px;word-break:break-all}
+
+.inc{padding:12px 0 13px;border-bottom:1px solid var(--rule);
+     border-left:3px solid var(--rule-hi);padding-left:11px;cursor:pointer;transition:background .12s}
+.inc:last-child{border-bottom:none}
+.inc:hover{background:var(--panel-2)}
+.inc.s-red{border-left-color:var(--red)}
+.inc.s-orange{border-left-color:var(--orange)}
+.inc.s-amber{border-left-color:var(--amber)}
+.inc.s-green{border-left-color:var(--green)}
+.inc.s-grey{border-left-color:var(--rule-hi)}
+.inc-top{display:flex;align-items:baseline;gap:9px;justify-content:space-between}
+.inc-where{font-family:var(--f-cond);font-size:17px;font-weight:600;letter-spacing:.03em;
+           color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inc-dist{font-family:var(--f-mono);font-size:12px;font-weight:500;color:var(--ink-mid);
+          font-variant-numeric:tabular-nums;white-space:nowrap}
+.inc-meta{font-size:12.5px;color:var(--ink-mute);margin-top:2px;
+          overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inc-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}
+.pill{font-family:var(--f-cond);font-size:11.5px;font-weight:600;letter-spacing:.09em;
+      text-transform:uppercase;padding:2px 7px;border-radius:2px;border:1px solid currentColor}
+.pill.s-red{color:var(--red)} .pill.s-orange{color:var(--orange)}
+.pill.s-amber{color:var(--amber)} .pill.s-green{color:var(--green)}
+.pill.s-grey{color:var(--ink-mute)}
+.res{font-family:var(--f-mono);font-size:12px;font-weight:500;color:var(--ink-mid);
+     font-variant-numeric:tabular-nums;display:inline-flex;align-items:center;gap:4px}
+.res b{color:var(--ink);font-weight:600}
+.ba{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-top:8px;padding:6px 9px;
+    background:var(--panel-2);border-left:2px solid var(--violet)}
+.ba-tot{font-family:var(--f-mono);font-size:15px;font-weight:600;color:var(--violet);
+        font-variant-numeric:tabular-nums}
+.ba-brk{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mute);
+        font-variant-numeric:tabular-nums}
+.warn{display:block;margin-top:8px;padding:6px 9px;background:rgba(232,68,42,.11);
+      border-left:2px solid var(--red);font-family:var(--f-cond);font-size:13px;
+      font-weight:600;letter-spacing:.04em;color:var(--red)}
+
+.wind{display:flex;align-items:center;gap:18px;padding:16px 0 4px;flex-wrap:wrap}
+.rose{flex:0 0 118px}
+.wind-read{flex:1 1 150px;min-width:140px}
+.big{font-family:var(--f-mono);font-size:37px;font-weight:600;line-height:1;
+     color:var(--ink);font-variant-numeric:tabular-nums}
+.big span{font-size:15px;font-weight:500;color:var(--ink-mute);margin-left:4px}
+.from{font-family:var(--f-cond);font-size:14px;font-weight:600;letter-spacing:.11em;
+      text-transform:uppercase;color:var(--ink-mid);margin-top:6px}
+.spread{margin-top:12px;padding:9px 11px;background:var(--panel-2);border-left:2px solid var(--orange)}
+.spread .lbl{font-family:var(--f-cond);font-size:11px;font-weight:600;letter-spacing:.15em;
+             text-transform:uppercase;color:var(--ink-mute)}
+.spread .val{font-family:var(--f-cond);font-size:19px;font-weight:700;letter-spacing:.05em;
+             color:var(--orange);margin-top:1px}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);
+         margin:14px 0 6px;border:1px solid var(--rule)}
+.metric{background:var(--panel-2);padding:9px 10px}
+.metric .lbl{font-family:var(--f-cond);font-size:10.5px;font-weight:600;letter-spacing:.14em;
+             text-transform:uppercase;color:var(--ink-mute)}
+.metric .val{font-family:var(--f-mono);font-size:19px;font-weight:600;color:var(--ink);
+             font-variant-numeric:tabular-nums;margin-top:2px}
+.metric .val.hot{color:var(--red)} .metric .val.dry{color:var(--orange)}
+
+.ac{display:flex;align-items:center;gap:11px;padding:10px 0;
+    border-bottom:1px solid var(--rule);cursor:pointer;transition:background .12s}
+.ac:last-child{border-bottom:none}
+.ac:hover{background:var(--panel-2)}
+.ac-tag{flex:0 0 46px;height:34px;display:flex;align-items:center;justify-content:center;
+        border:1px solid var(--rule-hi);border-radius:2px;background:var(--panel-2)}
+.ac.fire .ac-tag{border-color:var(--orange);background:rgba(240,138,34,.13)}
+.ac-main{flex:1;min-width:0}
+.ac-id{font-family:var(--f-cond);font-size:16px;font-weight:600;letter-spacing:.05em;
+       color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ac.fire .ac-id{color:var(--orange)}
+.ac-sub{font-family:var(--f-mono);font-size:11.5px;color:var(--ink-mute);
+        font-variant-numeric:tabular-nums;margin-top:1px;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ac-alt{font-family:var(--f-mono);font-size:13px;font-weight:500;color:var(--ink-mid);
+        text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ---------- diagnóstico ---------- */
+.diag{display:flex;flex-wrap:wrap;gap:1px;background:var(--rule);border-bottom:1px solid var(--rule)}
+.dg{flex:1 1 210px;background:var(--panel);padding:9px var(--gut) 10px;min-width:0}
+.dg .dg-top{display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:var(--ink-mute)}
+.dot.ok{background:var(--green)} .dot.bad{background:var(--red)}
+.dg .nm{font-family:var(--f-cond);font-size:12px;font-weight:600;letter-spacing:.13em;
+        text-transform:uppercase;color:var(--ink-mid)}
+.dg .via{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mute);
+         margin-left:auto;white-space:nowrap}
+.dg .msg{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mute);
+         margin-top:3px;line-height:1.5;word-break:break-word}
+.dg.bad .msg{color:var(--orange)}
+
+.foot{padding:16px var(--gut) calc(26px + env(safe-area-inset-bottom,0px));
+      font-family:var(--f-mono);font-size:11px;line-height:1.75;color:var(--ink-mute)}
+.foot strong{font-family:var(--f-cond);font-size:12px;letter-spacing:.14em;
+             text-transform:uppercase;color:var(--ink-mid);display:block;
+             margin-bottom:5px;font-weight:600}
+
+/* ---------- HUD do radar ---------- */
+.hud{position:absolute;z-index:600;pointer-events:none}
+.hud.tl{top:0;left:0;padding:10px 12px}
+.hud.tr{top:0;right:0;padding:10px 12px;text-align:right}
+.hud.bl{bottom:0;left:0;padding:10px 12px;max-height:56%;display:flex;flex-direction:column}
+.hud.br{bottom:0;right:0;padding:10px 12px 76px;text-align:right}
+.box{background:var(--hud);border:1px solid var(--rule-hi);padding:9px 12px;backdrop-filter:blur(3px)}
+.box .lbl{font-family:var(--f-cond);font-size:10.5px;font-weight:600;letter-spacing:.2em;
+          text-transform:uppercase;color:var(--ink-mute)}
+.box .big{font-size:26px}
+.box .big.f{color:var(--ac-fire)} .box .big.d{color:var(--drop)}
+.hsub{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mute);margin-top:3px;
+      font-variant-numeric:tabular-nums}
+.why{font-family:var(--f-mono);font-size:9.5px;color:var(--ink-mute);margin-top:4px;
+     line-height:1.5;max-width:300px;word-break:break-word}
+.err{color:var(--red)}
+
+.tbl{pointer-events:auto;overflow-y:auto;background:var(--hud);
+     border:1px solid var(--rule-hi);min-width:330px;max-width:min(430px,46vw)}
+.tbl-h{display:grid;grid-template-columns:78px 1fr 52px 44px 40px;gap:7px;padding:6px 11px;
+       border-bottom:1px solid var(--rule-hi);font-family:var(--f-cond);font-size:10px;
+       font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute);
+       position:sticky;top:0;background:var(--hud)}
+.row{display:grid;grid-template-columns:78px 1fr 52px 44px 40px;gap:7px;padding:5px 11px;
+     border-bottom:1px solid var(--rule);font-family:var(--f-mono);font-size:11.5px;
+     font-variant-numeric:tabular-nums;cursor:pointer;color:var(--ac-gen)}
+.row:last-child{border-bottom:none}
+.row:hover{background:rgba(255,167,51,.08)}
+.row.fire{color:var(--ac-fire)}
+.row .cs{font-weight:600;letter-spacing:.03em}
+.row .ty{color:var(--ink-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .n{text-align:right}
+.row.stale{opacity:.45}
+.empty{padding:16px 12px;color:var(--ink-mute);font-size:11px;line-height:1.6;font-family:var(--f-mono)}
+
+@media (max-width:760px){
+  .hud.bl{max-height:38%;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+  .tbl{min-width:0;max-width:calc(100vw - 24px)}
+  .tbl-h,.row{grid-template-columns:72px 1fr 50px 40px;gap:6px}
+  .row{padding:10px 11px;font-size:12.5px}
+  .tbl-h span:nth-child(5),.row span:nth-child(5){display:none}
+  .hud.tr{padding:10px 12px;top:auto;bottom:0;
+          padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+  .hud.tr .box{display:flex;gap:14px;align-items:baseline}
+  .hud.tr .box .big{font-size:18px}
+  .hud.br{display:none}
+}
+@media (max-width:640px){
+  #mapS{height:46vh;min-height:250px}
+  .brand h1{font-size:17px}
+  .pane-body{max-height:none}
+  .deck{grid-template-columns:1fr}
+  .topbar{gap:8px;padding:8px 12px}
+  .btn,.seg button{padding:10px 13px}
+  .inc{padding-top:14px;padding-bottom:15px}
+  .ac{padding:13px 0}
+  .keybar input{font-size:16px}
+}
+@media (hover:none){
+  .inc:hover,.ac:hover,.row:hover{background:none}
+  .inc:active,.ac:active{background:var(--panel-2)}
+  .row:active{background:rgba(255,167,51,.14)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="offbar" id="offbar" hidden>
+  Sem ligação — mapa em cache, dados parados. Nada do que está no ecrã é atual.
+</div>
+
+<div class="topbar">
+  <div class="brand">
+    <h1>SITREP Arganil</h1>
+    <span class="sub" id="refName">—</span>
+  </div>
+  <span class="clock" id="clock">--:--:--</span>
+  <div class="seg" role="group" aria-label="Vista">
+    <button type="button" id="vSitrep" aria-pressed="true">Sitrep</button>
+    <button type="button" id="vRadar"  aria-pressed="false">Radar</button>
+  </div>
+  <button class="btn" id="btnFires" type="button" aria-pressed="true">Só incêndios</button>
+  <button class="btn" id="btnRef" type="button" aria-pressed="false">Posição</button>
+  <button class="btn" id="btnTheme" type="button">Modo dia</button>
+  <button class="btn" id="btnKey" type="button">Chave</button>
+  <button class="btn" id="btnRefresh" type="button">Atualizar</button>
+</div>
+
+<div class="keybar" id="keyBar" hidden>
+  <label for="keyIn">Chave RapidAPI do ADS-B Exchange</label>
+  <input type="password" id="keyIn" placeholder="opcional — vazio usa as redes comunitárias" autocomplete="off" spellcheck="false">
+  <button class="btn" id="keySave" type="button">Guardar</button>
+  <button class="btn" id="keyClear" type="button">Remover</button>
+  <p class="keynote">
+    Guardada só neste browser, nunca no ficheiro. Pedidos autenticados não passam por proxy.
+    A <span id="quotaCalc">10 s</span> de cadência, 10.000 pedidos/mês dão cerca de
+    <span id="quotaHours">28</span> horas de uso.
+  </p>
+</div>
+
+<!-- ============ VISTA SITREP ============ -->
+<div id="viewSitrep">
+  <div class="mapwrap"><div id="mapS"></div></div>
+
+  <div class="deck">
+    <section class="pane">
+      <div class="pane-head"><h2>Ocorrências</h2><span class="count" id="cInc">—</span></div>
+      <p class="pane-note" id="incNote">ANEPC · ordenadas por distância</p>
+      <div class="pane-body" id="incBody"><div class="state">A carregar…</div></div>
+    </section>
+
+    <section class="pane">
+      <div class="pane-head"><h2>Vias condicionadas</h2><span class="count" id="cRoad">—</span></div>
+      <p class="pane-note">Naturezas de via do PROCIV, últimas 24 h</p>
+      <div class="pane-body" id="roadBody"><div class="state">A carregar…</div></div>
+    </section>
+
+    <section class="pane">
+      <div class="pane-head"><h2>Vento e propagação</h2><span class="count" id="cWind">—</span></div>
+      <div class="pane-body" id="windBody"><div class="state">A carregar…</div></div>
+    </section>
+
+    <section class="pane">
+      <div class="pane-head"><h2>Aeronaves</h2><span class="count" id="cAc">—</span></div>
+      <p class="pane-note" id="acNote">ADS-B comunitário</p>
+      <div class="pane-body" id="acBody"><div class="state">A contactar…</div></div>
+    </section>
+
+    <section class="pane">
+      <div class="pane-head"><h2>Descargas e frente</h2><span class="count" id="cDrop">—</span></div>
+      <p class="pane-note">Mínimo de altura acima do solo seguido de subida, junto a uma ocorrência</p>
+      <div class="pane-body" id="dropBody"><div class="state">A acumular trajetórias…</div></div>
+    </section>
+  </div>
+
+  <div class="diag" id="diag"></div>
+
+  <div class="foot">
+    <strong>Fontes e limites</strong>
+    Ocorrências: PROCIV/ANEPC (ArcGIS oficial) e api.fogos.pt, fundidos pelo número SADO comum às duas.
+    O PROCIV dá cobertura, meios, duração e fase; o fogos.pt acrescenta a área ardida do ICNF.<br>
+    Vias: derivadas das naturezas do PROCIV (4305 limpeza de via, 3301 queda de árvore,
+    3313 movimento de massa, 3321 cabos). Não é um registo de estradas cortadas — a ANEPC não publica um.
+    Ausência de marcador nunca significa via livre.<br>
+    Meteorologia: Open-Meteo, vento a 10 m, não corrigido para orografia.<br>
+    Focos e área ardida: EFFIS/Copernicus — ~2 passagens/dia; a área ardida MODIS só deteta acima de ~40 ha.<br>
+    Potência radiativa e risco: LSA-SAF/IPMA (MSG/SEVIRI) — 15 em 15 min, pixel de ~3 km.<br>
+    Aeronaves: redes ADS-B comunitárias — só quem transmite e é recebido; cobertura em vale é fraca.<br>
+    Descargas: inferidas, não reportadas. Erro esperado na ordem das dezenas de metros — uma descarga
+    isolada não é de confiança, o sinal está no padrão repetido.<br>
+    <br>
+    Ferramenta de consciência situacional, não fonte oficial. Em emergência: 112.
+  </div>
+</div>
+
+<!-- ============ VISTA RADAR ============ -->
+<div id="viewRadar" hidden>
+  <div id="mapR"></div>
+
+  <div class="hud tl">
+    <div class="box">
+      <div class="lbl">Radar</div>
+      <div class="hsub" id="rPos">—</div>
+      <div class="hsub" id="rSrc">a ligar…</div>
+    </div>
+  </div>
+
+  <div class="hud tr">
+    <div class="box">
+      <div class="lbl">Contactos</div><div class="big" id="rNac">—</div>
+      <div class="lbl" style="margin-top:7px">Combate</div><div class="big f" id="rNfire">—</div>
+      <div class="lbl" style="margin-top:7px">Descargas</div><div class="big d" id="rNdrop">—</div>
+    </div>
+  </div>
+
+  <div class="hud bl">
+    <div class="tbl">
+      <div class="tbl-h">
+        <span>Indicativo</span><span>Tipo</span><span class="n">Alt</span><span class="n">Vel</span><span class="n">AGL</span>
+      </div>
+      <div id="rRows"><div class="empty">A contactar rede ADS-B…</div></div>
+    </div>
+  </div>
+
+  <div class="hud br">
+    <div class="box">
+      <div class="lbl">Legenda</div>
+      <div class="hsub" style="color:var(--ac-fire)">▲ meio de combate</div>
+      <div class="hsub" style="color:var(--ac-gen)">▲ tráfego geral</div>
+      <div class="hsub" style="color:var(--drop)">━ eixo de descargas</div>
+      <div class="hsub" style="color:var(--orange)">◉ ocorrência ativa</div>
+      <div class="hsub" id="rEscala">anéis —</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* ============================================================
+   SITREP Arganil — núcleo partilhado
+   ------------------------------------------------------------
+   Os dados são obtidos UMA vez e alimentam as duas vistas.
+   Antes eram duas páginas com ciclos independentes, o que
+   duplicava os pedidos às redes ADS-B e esgotava o limite de
+   taxa por IP. Aqui há um só ciclo.
+   ============================================================ */
+(function(){
+"use strict";
+
+/* ---------- configuração ---------- */
+var REF = { lat: 40.2167, lon: -8.0500, name: "Arganil" };
+
+var ADSB_RADIUS_NM = 60;
+var RADIUS_KM      = ADSB_RADIUS_NM * 1.852;
+var INC_MS         = 60 * 1000;
+var AC_MS          = 10 * 1000;
+var WX_MS          = 10 * 60 * 1000;
+var DR_MAX_S       = 45;
+var TRACK_MAX_MIN  = 40;
+var GEOID_N        = 54;
+var DROP_AGL_MAX   = 180;
+var DROP_PULLUP    = 90;
+var NEAR_FIRE_KM   = 8;
+var FT_M           = 0.3048;
+var NM_M           = 1852;
+
+var PROCIV = "https://services-eu1.arcgis.com/VlrHb7fn5ewYhX6y/arcgis/rest/services/OcorrenciasSite/FeatureServer/0/query";
+var EFFIS  = "https://maps.effis.emergency.copernicus.eu/effis";
+var ADAGUC = "https://adaguc.lsasvcs.ipma.pt/adagucserver";
+var ESRI   = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+
+var ADSB = [
+  { n:"adsb.fi", f:"readsb",
+    u:function(a,o,d){ return "https://opendata.adsb.fi/api/v2/lat/"+a+"/lon/"+o+"/dist/"+d; } },
+  { n:"adsb.lol", f:"readsb",
+    u:function(a,o,d){ return "https://api.adsb.lol/v2/lat/"+a+"/lon/"+o+"/dist/"+d; } },
+  { n:"airplanes.live", f:"readsb",
+    u:function(a,o,d){ return "https://api.airplanes.live/v2/point/"+a+"/"+o+"/"+d; } },
+  { n:"OpenSky", f:"opensky",
+    u:function(a,o,d){
+      var g = d/60, gl = g/Math.cos(a*Math.PI/180);
+      return "https://opensky-network.org/api/states/all?lamin="+(+a-g).toFixed(4)+
+             "&lamax="+(+a+g).toFixed(4)+"&lomin="+(+o-gl).toFixed(4)+"&lomax="+(+o+gl).toFixed(4);
+    } }
+];
+
+var PROXIES = [
+  { name:"allorigins", wrap:function(u){ return "https://api.allorigins.win/raw?url="+encodeURIComponent(u); } },
+  { name:"codetabs",   wrap:function(u){ return "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u); } },
+  { name:"corsproxy",  wrap:function(u){ return "https://corsproxy.io/?url="+encodeURIComponent(u); } }
+];
+
+var ADSBX_HOST = "adsbexchange-com1.p.rapidapi.com";
+
+/* tipos ICAO usados em combate a incêndios */
+var FIRE_TYPES = {
+  AT8T:"Air Tractor AT-802", AT8R:"Air Tractor AT-802", A802:"Air Tractor AT-802",
+  CL2T:"Canadair CL-215T", CL41:"Canadair CL-415", C415:"Canadair CL-415",
+  S2T:"Conair S-2T", DH8D:"Dash 8 Q400MR", Q400:"Dash 8 Q400MR",
+  M18:"PZL M18 Dromader", AN2:"Antonov An-2",
+  KA32:"Kamov Ka-32", K32:"Kamov Ka-32",
+  B412:"Bell 412", B212:"Bell 212", B205:"Bell 205", B214:"Bell 214", B407:"Bell 407",
+  S64:"Erickson Aircrane", S61:"Sikorsky S-61", H500:"MD 500",
+  AS32:"AS332 Super Puma", EC25:"EC225", H215:"H215 Super Puma",
+  AS50:"AS350 Écureuil", H125:"H125 Écureuil", A350:"AS350 Écureuil",
+  EC30:"EC130", H130:"H130", A109:"AW109", A139:"AW139", AW39:"AW139",
+  EC35:"EC135", H135:"H135", EC45:"EC145", H145:"H145",
+  IL76:"Il-76", C130:"C-130 Hercules", B733:"B737 Fireliner"
+};
+
+/* naturezas ANEPC que implicam via afetada */
+var ROAD_BLOCK = {
+  "4305":"Limpeza de via e sinalização", "3301":"Queda de árvore",
+  "3313":"Movimento de massa", "3321":"Queda de cabos elétricos",
+  "3323":"Rotura de rede de água"
+};
+var ROAD_CRASH = {
+  "2301":"Acidente rodoviário", "2401":"Atropelamento",
+  "2403":"Colisão", "2407":"Despiste"
+};
+
+/* ---------- estado ---------- */
+var view = "sitrep";
+var theme = "escuro";
+var onlyFires = true;
+var incidents = [], roads = [], wx = null, acs = [];
+var tracks = {}, drops = [], elevCache = {}, elevBusy = false;
+var fireEpoch = 0, hasMeios = true;
+var adsbKey = "", adsbCalls = 0, adsbStick = null, adsbFails = 0, adsbRL = 0;
+var netHost = {}, netMode = { direct:null, proxy:null };
+var DIAG = { incidents:{ok:null,via:"—",msg:""}, weather:{ok:null,via:"—",msg:""},
+             aircraft:{ok:null,via:"—",msg:""} };
+var DIAG_SAF = { ok:null, msg:"" };
+var photoCache = {};
+var radarReady = false;
+
+try { theme = localStorage.getItem("sitrep_tema") === "dia" ? "dia" : "escuro"; } catch(e){}
+try { adsbKey = localStorage.getItem("sitrep_adsbx_key") || ""; } catch(e){}
+
+/* ---------- utilitários ---------- */
+function $(i){ return document.getElementById(i); }
+function num(v){ return (typeof v === "number" && isFinite(v)) ? v : 0; }
+function esc(s){
+  return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function nOrNull(v){
+  if (v === null || v === undefined || v === "") return null;
+  var n = parseFloat(v);
+  return isFinite(n) ? n : null;
+}
+function hav(la1,lo1,la2,lo2){
+  var R=6371, r=Math.PI/180, dA=(la2-la1)*r, dO=(lo2-lo1)*r;
+  var a=Math.sin(dA/2)*Math.sin(dA/2)+Math.cos(la1*r)*Math.cos(la2*r)*Math.sin(dO/2)*Math.sin(dO/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function brgTo(la1,lo1,la2,lo2){
+  var r=Math.PI/180;
+  var y=Math.sin((lo2-lo1)*r)*Math.cos(la2*r);
+  var x=Math.cos(la1*r)*Math.sin(la2*r)-Math.sin(la1*r)*Math.cos(la2*r)*Math.cos((lo2-lo1)*r);
+  return (Math.atan2(y,x)/r+360)%360;
+}
+var ROSE=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+function compass(d){ return ROSE[Math.round(((d%360)+360)%360/22.5)%16]; }
+function angDiff(a,b){ return 180-Math.abs(((a-b)%360+540)%360-180); }
+function dur(min){
+  if (!isFinite(min) || min <= 0) return "";
+  var h=Math.floor(min/60), m=Math.round(min%60);
+  return h ? (h+"h"+(m?" "+m+"m":"")) : (m+"m");
+}
+function isoDay(back){
+  return new Date(Date.now()-(back||0)*86400000).toISOString().slice(0,10);
+}
+function cssVar(n){
+  return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#888";
+}
+
+/* ---------- rede ---------- */
+function fetchJSON(url, ms, headers){
+  var c = new AbortController();
+  var t = setTimeout(function(){ c.abort(); }, ms || 12000);
+  var o = { signal:c.signal, cache:"no-store" };
+  if (headers) o.headers = headers;
+  return fetch(url, o).then(function(r){
+    clearTimeout(t);
+    if (!r.ok) throw new Error("HTTP "+r.status);
+    return r.json();
+  }).catch(function(e){ clearTimeout(t); throw e; });
+}
+
+function hostOf(u){
+  try { return new URL(u, location.href).host; } catch(e){ return String(u).slice(0,40); }
+}
+function netSummary(){
+  var ok=0, bad=0;
+  Object.keys(netHost).forEach(function(h){
+    if (netHost[h].direct === true) ok++;
+    if (netHost[h].direct === false) bad++;
+  });
+  netMode.direct = bad===0 ? (ok?true:null) : (ok?"misto":false);
+  return { ok:ok, bad:bad };
+}
+function usingProxy(){ return netMode.direct === false || netMode.direct === "misto"; }
+
+/* Quem decide o CORS é cada servidor, não o browser: o modo é
+   memorizado por host, senão um host recusado empurrava para os
+   proxies outros que funcionam bem em direto. */
+function fetchVia(url, ms, headers){
+  var to = ms || 12000, host = hostOf(url);
+  if (!netHost[host]) netHost[host] = { direct:null };
+
+  function viaProxy(){
+    var order = PROXIES.slice();
+    if (netMode.proxy) order.sort(function(a,b){
+      return (b.name===netMode.proxy)-(a.name===netMode.proxy);
+    });
+    var i = 0;
+    function next(){
+      if (i >= order.length){ netMode.proxy = null; throw new Error("proxies indisponíveis"); }
+      var p = order[i++];
+      return fetchJSON(p.wrap(url), to+6000)
+        .then(function(d){ netMode.proxy = p.name; return { data:d, via:p.name }; })
+        .catch(next);
+    }
+    return next();
+  }
+
+  if (headers) return fetchJSON(url, to, headers).then(function(d){ return {data:d,via:"direto"}; });
+  if (netHost[host].direct === false) return viaProxy();
+
+  return fetchJSON(url, to)
+    .then(function(d){ netHost[host].direct = true; netSummary(); return {data:d,via:"direto"}; })
+    .catch(function(e){
+      if (e && e.name === "TypeError"){ netHost[host].direct = false; netSummary(); }
+      return viaProxy();
+    });
+}
+
+function showError(el, msg, detail, noteId){
+  el.innerHTML = '<div class="state err">'+esc(msg)+
+    (detail?'<code>'+esc(detail)+'</code>':'')+'</div>';
+  if (noteId && $(noteId)) $(noteId).textContent = "Última leitura falhou — ver detalhe abaixo";
+}
+
+/* ============================================================
+   OCORRÊNCIAS — PROCIV + fogos.pt, fundidos pelo número SADO
+   ============================================================ */
+function procivURL(lat, lon, rM){
+  var g = encodeURIComponent(JSON.stringify({ x:+lon, y:+lat, spatialReference:{wkid:4326} }));
+  return PROCIV+"?f=geojson&where=1%3D1&outFields=*&outSR=4326&returnGeometry=true"+
+    "&geometry="+g+"&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects"+
+    "&distance="+rM+"&units=esriSRUnit_Meter&orderByFields=ID_oc%20DESC&resultRecordCount=1000";
+}
+
+function fromProciv(gj){
+  return ((gj && gj.features) || []).map(function(f){
+    var p = f.properties || {}, c = (f.geometry && f.geometry.coordinates) || [];
+    var nat = String(p.Natureza || ""), m = nat.match(/^(\d+)\s*-\s*(.*)$/);
+    return {
+      numero: String(p.Numero || p.ID || ""),
+      lat: p.Latitude  != null ? parseFloat(p.Latitude)  : parseFloat(c[1]),
+      lng: p.Longitude != null ? parseFloat(p.Longitude) : parseFloat(c[0]),
+      freguesia: p.Freguesia || p.Localidade || "",
+      concelho:  p.Concelho || "",
+      district:  p.SubRegiao || p.Regiao || "",
+      naturezaCode: String(p.CodNatureza || (m ? m[1] : "")),
+      natureza: m ? m[2] : nat,
+      status: p.EstadoOcorrencia || p.EstadoAgrupado || "",
+      statusCode: p.CodEstadoOcorrencia,
+      date: p.Data || "", hour: p.Hora || "",
+      man: nOrNull(p.Operacionais), terrain: nOrNull(p.MeiosTerrestres),
+      aerial: nOrNull(p.MeiosAereos), opAereos: nOrNull(p.OPAereos),
+      entidades: nOrNull(p.QuantEntidades), duracaoMin: nOrNull(p.DuracaoMinutos),
+      fase: p.FaseIncendio || "", _src:"PROCIV"
+    };
+  });
+}
+
+function cleanCoords(l){
+  return l.filter(function(i){
+    return isFinite(parseFloat(i.lat)) && isFinite(parseFloat(i.lng));
+  }).map(function(i){ i.lat=parseFloat(i.lat); i.lng=parseFloat(i.lng); return i; });
+}
+
+function isRecent(i){
+  var s = (i.status||"").toLowerCase();
+  if (s.indexOf("encerrad")>=0 || s.indexOf("falso")>=0) return false;
+  if (!i.date) return true;
+  var iso = i.date;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(iso)){ var p=iso.split("-"); iso=p[2]+"-"+p[1]+"-"+p[0]; }
+  var d = new Date(iso+"T00:00:00");
+  if (isNaN(d)) return true;
+  return (Date.now()-d.getTime()) < 3*86400000;
+}
+
+function loadIncidents(){
+  var pF = fetchVia("https://api.fogos.pt/v2/incidents/active", 11000)
+    .then(function(r){
+      var j=r.data, l=Array.isArray(j)?j:(j.data||j.incidents||[]);
+      return { list:cleanCoords(l), err:null };
+    }).catch(function(e){ return { list:null, err:"fogos.pt: "+e.message }; });
+
+  var pP = fetchVia(procivURL(REF.lat, REF.lon, 80000), 13000)
+    .then(function(r){ return { list:cleanCoords(fromProciv(r.data)), err:null }; })
+    .catch(function(e){ return { list:null, err:"PROCIV: "+e.message }; });
+
+  return Promise.all([pF,pP]).then(function(r){
+    var fogos=r[0], prociv=r[1];
+
+    if (!fogos.list && !prociv.list){
+      DIAG.incidents = { ok:false, via:"—",
+        msg:[fogos.err,prociv.err].filter(Boolean).join("  |  ") };
+      renderIncidents(); renderDiag();
+      return;
+    }
+
+    /* vias condicionadas: só o PROCIV traz estas naturezas */
+    roads = [];
+    if (prociv.list){
+      var lim = Date.now()-86400000;
+      roads = prociv.list.filter(function(i){
+        var c = String(i.naturezaCode||"");
+        if (!ROAD_BLOCK[c] && !ROAD_CRASH[c]) return false;
+        var s = (i.status||"").toLowerCase();
+        if (s.indexOf("encerrad")>=0 || s.indexOf("falso")>=0) return false;
+        if (i.date){
+          var d = new Date(i.date+"T"+(i.hour||"00:00")+":00");
+          if (!isNaN(d) && d.getTime() < lim) return false;
+        }
+        return true;
+      }).map(function(i){
+        var c = String(i.naturezaCode||"");
+        i._block = !!ROAD_BLOCK[c];
+        i._rotulo = ROAD_BLOCK[c] || ROAD_CRASH[c] || i.natureza;
+        return i;
+      });
+    }
+
+    /* fusão: o "Numero" do PROCIV é o "id" do fogos.pt */
+    var byNum = {};
+    (fogos.list||[]).forEach(function(f){
+      var k = String(f.id||f.sadoId||""); if (k) byNum[k]=f;
+    });
+    var base = prociv.list ? prociv.list.slice() : [], vistos = {};
+    base.forEach(function(p){
+      vistos[p.numero]=1;
+      var f = byNum[p.numero]; if (!f) return;
+      p._both = true;
+      if (f.icnf) p.icnf = f.icnf;
+      if (f.weather) p.weather = f.weather;
+      if (p.man===null && f.man!=null) p.man=f.man;
+      if (p.terrain===null && f.terrain!=null) p.terrain=f.terrain;
+      if (p.aerial===null && f.aerial!=null) p.aerial=f.aerial;
+    });
+    (fogos.list||[]).forEach(function(f){
+      var k = String(f.id||f.sadoId||"");
+      if (k && vistos[k]) return;
+      f.numero = k; base.push(f);
+    });
+
+    var raw = base.length;
+    incidents = base.filter(isRecent);
+    hasMeios = incidents.some(function(i){ return i.man !== null && i.man !== undefined; });
+    fireEpoch++;
+
+    var fontes = [];
+    if (prociv.list) fontes.push("PROCIV");
+    if (fogos.list) fontes.push("fogos.pt");
+    var cruz = base.filter(function(i){ return i._both; }).length;
+
+    var note = raw+" recebidas, "+incidents.length+" recentes";
+    if (cruz) note += " · "+cruz+" nas duas fontes";
+    if (roads.length) note += " · "+roads.length+" via(s) afetada(s)";
+    [fogos.err,prociv.err].filter(Boolean).forEach(function(e){ note += "  |  "+e; });
+
+    DIAG.incidents = { ok:true, via:fontes.join(" + ")||"—", msg:note };
+    renderIncidents(); renderRoads(); renderDiag();
+    if (radarReady) drawFires();
+  });
+}
+
+/* ============================================================
+   METEOROLOGIA
+   ============================================================ */
+function loadWeather(){
+  var u = "https://api.open-meteo.com/v1/forecast?latitude="+REF.lat.toFixed(4)+
+    "&longitude="+REF.lon.toFixed(4)+
+    "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl"+
+    "&timezone=Europe%2FLisbon";
+  return fetchVia(u).then(function(r){
+    var c = r.data.current;
+    if (!c) throw new Error("resposta sem 'current'");
+    wx = { dir:c.wind_direction_10m, speed:c.wind_speed_10m, gust:c.wind_gusts_10m,
+           temp:c.temperature_2m, rh:c.relative_humidity_2m, qnh:c.pressure_msl };
+    DIAG.weather = { ok:true, via:r.via, msg:"" };
+    renderWeather(); renderIncidents(); renderDiag();
+  }).catch(function(e){
+    DIAG.weather = { ok:false, via:"—", msg:"open-meteo: "+e.message };
+    showError($("windBody"), "Não foi possível obter a meteorologia.", DIAG.weather.msg);
+    $("cWind").textContent = "erro";
+    renderDiag();
+  });
+}
+
+/* ============================================================
+   AERONAVES
+   ============================================================ */
+function fromOpenSky(st, srv){
+  var now = srv || Math.floor(Date.now()/1000);
+  return (st||[]).filter(function(s){ return s && isFinite(s[6]) && isFinite(s[5]); })
+    .map(function(s){
+      return { hex:s[0], flight:(s[1]||"").trim(), lat:s[6], lon:s[5],
+        alt_baro: s[8] ? "ground" : Math.round((s[7]||0)*3.28084),
+        alt_geom: isFinite(s[13]) ? Math.round(s[13]*3.28084) : undefined,
+        gs:Math.round((s[9]||0)*1.94384), track:s[10]||0,
+        seen_pos: isFinite(s[3]) ? Math.max(0, now-s[3]) : 0, t:"" };
+    });
+}
+
+function adsbxSource(){
+  return { n:"ADSBx", f:"readsb", paid:true,
+    u:function(a,o,d){ return "https://"+ADSBX_HOST+"/v2/lat/"+a+"/lon/"+o+"/dist/"+d+"/"; },
+    h:function(){ return { "X-RapidAPI-Key":adsbKey, "X-RapidAPI-Host":ADSBX_HOST }; } };
+}
+
+function loadAircraft(){
+  if (adsbRL && Date.now()-adsbRL < 60000){
+    DIAG.aircraft = { ok:false, via:"—", msg:"limite de pedidos atingido · a aguardar" };
+    renderDiag();
+    return Promise.resolve();
+  }
+
+  var chain = adsbKey ? [adsbxSource()].concat(ADSB) : ADSB.slice();
+  if (adsbStick) chain.sort(function(a,b){ return (b.n===adsbStick)-(a.n===adsbStick); });
+  var errs = [];
+
+  function go(i){
+    if (i >= chain.length){
+      adsbFails++;
+      if (adsbFails >= 2) adsbStick = null;
+      DIAG.aircraft = { ok:false, via:"—",
+        msg: errs.join(" · ")+" · nova tentativa em "+Math.min(adsbFails,6)*10+" s" };
+      showError($("acBody"), "Nenhuma rede ADS-B respondeu.", errs.join("  |  "), "acNote");
+      $("cAc").textContent = "erro";
+      if (view === "radar"){
+        $("rSrc").innerHTML = '<span class="err">sem rede ADS-B</span>'+
+                              '<div class="why">'+esc(errs.join(" · "))+'</div>';
+      }
+      renderDiag();
+      return;
+    }
+    var s = chain[i];
+    var u = s.u(REF.lat.toFixed(4), REF.lon.toFixed(4), ADSB_RADIUS_NM);
+    var h = s.h ? s.h() : null;
+    if (s.paid) adsbCalls++;
+
+    return fetchVia(u, 11000, h).then(function(r){
+      adsbStick = s.n; adsbFails = 0;
+      var list = s.f === "opensky" ? fromOpenSky(r.data.states, r.data.time)
+                                   : (r.data.ac || r.data.aircraft || []);
+      DIAG.aircraft = { ok:true, via:s.n+" / "+r.via,
+        msg: s.paid ? (adsbCalls+" pedidos pagos nesta sessão") : "" };
+      ingestAircraft(list, s.n, r.via, s.f);
+      renderDiag();
+    }).catch(function(e){
+      var m = (e && e.message) ? e.message : "?";
+      if (/\b429\b/.test(m)) adsbRL = Date.now();
+      errs.push(s.n+": "+m);
+      return go(i+1);
+    });
+  }
+  return go(0);
+}
+
+function classify(a){
+  var t = (a.t||"").toUpperCase();
+  if (FIRE_TYPES[t]) return { hit:true, label:FIRE_TYPES[t], reason:"tipo" };
+  var alt = a.alt_baro === "ground" ? 0 : num(a.alt_baro);
+  var gs = num(a.gs);
+  if (alt > 0 && alt < 8000 && gs > 25 && gs < 190)
+    return { hit:true, label:(t||"desconhecido"), reason:"perfil" };
+  return { hit:false, label:t||"—", reason:"" };
+}
+
+var acSource = "", acVia = "", acFmt = "";
+
+function ingestAircraft(list, src, via, fmt){
+  acSource = src; acVia = via; acFmt = fmt;
+  acs = (list||[]).filter(function(a){
+    return typeof a.lat === "number" && typeof a.lon === "number";
+  }).map(function(a){
+    var c = classify(a);
+    return { a:a, fire:c.hit, label:c.label, reason:c.reason,
+             dist:hav(REF.lat, REF.lon, a.lat, a.lon) };
+  }).sort(function(x,y){
+    if (x.fire !== y.fire) return x.fire ? -1 : 1;
+    return x.dist - y.dist;
+  });
+
+  pushTracks(acs);
+  var pend = [];
+  Object.keys(tracks).forEach(function(h){
+    tracks[h].pts.forEach(function(p){
+      if (p.agl === null && elevCache[ekey(p.lat,p.lon)] === undefined) pend.push(p);
+    });
+  });
+  fillElev(pend).then(function(){
+    detectDrops();
+    renderAircraft();
+    renderDrops();
+  });
+  renderAircraft();
+}
+
+/* ============================================================
+   TRAJETÓRIAS, COTA DO TERRENO E DESCARGAS
+   ============================================================ */
+function ekey(la,lo){ return la.toFixed(3)+","+lo.toFixed(3); }
+
+function fillElev(pts){
+  if (elevBusy || !pts.length) return Promise.resolve();
+  var need=[], seen={};
+  pts.forEach(function(p){
+    var k=ekey(p.lat,p.lon);
+    if (elevCache[k]===undefined && !seen[k]){ seen[k]=1; need.push(p); }
+  });
+  if (!need.length) return Promise.resolve();
+  need = need.slice(0,100);
+  elevBusy = true;
+  return fetchVia("https://api.open-meteo.com/v1/elevation?latitude="+
+      need.map(function(p){return p.lat.toFixed(4);}).join(",")+"&longitude="+
+      need.map(function(p){return p.lon.toFixed(4);}).join(","), 12000)
+    .then(function(r){
+      var d=r.data, arr=Array.isArray(d)?d:(d.elevation||d.elevations||[]);
+      if (!Array.isArray(arr)) arr=[arr];
+      need.forEach(function(p,i){
+        var v=parseFloat(arr[i]);
+        if (isFinite(v)) elevCache[ekey(p.lat,p.lon)] = v;
+      });
+      if (Object.keys(elevCache).length > 6000){
+        elevCache = {};
+        Object.keys(tracks).forEach(function(h){
+          tracks[h].pts.forEach(function(p){ p.agl = null; });
+        });
+      }
+      elevBusy = false;
+    }).catch(function(){ elevBusy = false; });
+}
+
+/* Três correções sem as quais isto daria lixo convincente:
+   cota do terreno, QNH (a barométrica assume 1013,25 hPa) e a
+   ondulação do geoide (a geométrica é elipsoidal). */
+function computeAGL(p){
+  var g = elevCache[ekey(p.lat,p.lon)];
+  if (g === undefined) return null;
+  var msl = null;
+  if (isFinite(p.altGeom)){ msl = p.altGeom*FT_M - GEOID_N; p.method = "geom"; }
+  else if (isFinite(p.altBaro)){
+    var q = (wx && isFinite(wx.qnh)) ? wx.qnh : 1013.25;
+    msl = p.altBaro*FT_M + (q-1013.25)*8.23;
+    p.method = q === 1013.25 ? "baro" : "baro+QNH";
+  }
+  return msl === null ? null : msl - g;
+}
+
+function pushTracks(list){
+  var now = Date.now();
+  list.forEach(function(x){
+    var a = x.a, hex = a.hex || a.r || (a.flight||"").trim();
+    if (!hex) return;
+    var ab = a.alt_baro === "ground" ? 0 : parseFloat(a.alt_baro);
+    var ag = parseFloat(a.alt_geom);
+    var ref = isFinite(ag) ? ag : ab;
+    if (!isFinite(ref) || ref > 12000) return;
+    if (!tracks[hex]) tracks[hex] = { id:(a.flight||"").trim()||a.r||hex, type:x.label, fire:x.fire, pts:[] };
+    tracks[hex].fire = x.fire; tracks[hex].type = x.label;
+    var last = tracks[hex].pts[tracks[hex].pts.length-1];
+    if (last && now-last.t < 8000) return;
+    tracks[hex].pts.push({ t:now, lat:a.lat, lon:a.lon,
+      altBaro:isFinite(ab)?ab:NaN, altGeom:isFinite(ag)?ag:NaN, agl:null });
+  });
+  var cut = now - TRACK_MAX_MIN*60000;
+  Object.keys(tracks).forEach(function(h){
+    tracks[h].pts = tracks[h].pts.filter(function(p){ return p.t >= cut; });
+    if (!tracks[h].pts.length) delete tracks[h];
+  });
+}
+
+function nearbyFires(){
+  return incidents.filter(function(f){
+    return hav(REF.lat, REF.lon, f.lat, f.lng) < RADIUS_KM + 30;
+  });
+}
+
+function detectDrops(){
+  var out = [], fl = nearbyFires();
+  Object.keys(tracks).forEach(function(hex){
+    var tk = tracks[hex], pts = tk.pts;
+    pts.forEach(function(p){ if (p.agl === null) p.agl = computeAGL(p); });
+
+    for (var i=1; i<pts.length-1; i++){
+      var p = pts[i];
+      if (p.agl === null || p.agl > DROP_AGL_MAX || p.agl < -80) continue;
+      var a = pts[i-1], b = pts[i+1];
+      if (a.agl === null || b.agl === null) continue;
+      if (!(p.agl <= a.agl && p.agl <= b.agl)) continue;
+
+      var rise = 0;
+      for (var j=i+1; j<pts.length && pts[j].t-p.t < 180000; j++)
+        if (pts[j].agl !== null) rise = Math.max(rise, pts[j].agl - p.agl);
+      if (rise < DROP_PULLUP) continue;
+
+      /* guardado no ponto: só reavaliado quando a lista de fogos muda */
+      if (p.nfEpoch !== fireEpoch){
+        var n0 = Infinity;
+        for (var q=0; q<fl.length; q++){
+          var dq = hav(p.lat, p.lon, fl[q].lat, fl[q].lng);
+          if (dq < n0) n0 = dq;
+        }
+        p.nf = n0; p.nfEpoch = fireEpoch;
+      }
+      out.push({ lat:p.lat, lon:p.lon, t:p.t, hex:hex, id:tk.id, type:tk.type,
+        agl:Math.round(p.agl), rise:Math.round(rise),
+        nearKm: isFinite(p.nf) ? p.nf : null,
+        confident: isFinite(p.nf) && p.nf <= NEAR_FIRE_KM,
+        method: p.method || "?" });
+    }
+  });
+  drops = out.sort(function(a,b){ return a.t-b.t; });
+}
+
+/* ============================================================
+   MAPA — SITREP
+   ============================================================ */
+var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true }).setView([REF.lat,REF.lon],10);
+
+var sSat  = L.tileLayer(ESRI+"World_Imagery/MapServer/tile/{z}/{y}/{x}",
+              { maxZoom:18, attribution:"Imagery &copy; Esri" }).addTo(mapS);
+var sTopo = L.tileLayer(ESRI+"World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+              { maxZoom:18, attribution:"&copy; Esri" });
+var sOSM  = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+              { maxZoom:19, attribution:"&copy; OpenStreetMap" });
+
+var WINDOW = isoDay(7)+"/"+isoDay(0);
+function wms(layer, opts){
+  return L.tileLayer.wms(EFFIS, Object.assign({
+    layers:layer, format:"image/png", transparent:true, version:"1.3.0",
+    opacity:0.85, attribution:"EFFIS / Copernicus" }, opts||{}));
+}
+/* as camadas com dimensão temporal têm omissão antiga (2016/2020):
+   sem TIME o servidor devolve esse ano e o mapa aparece vazio */
+var lHot    = wms("viirs.hs", { time:WINDOW }).addTo(mapS);
+var lHotAll = wms("all.hs",   { time:WINDOW });
+var lBaNrt  = wms("effis.nrt.ba.poly", { opacity:0.6, time:WINDOW }).addTo(mapS);
+var lBaDay  = wms("modis.ba.poly.today",  { opacity:0.6 });
+var lBaWk   = wms("modis.ba.poly.week",   { opacity:0.55 }).addTo(mapS);
+var lBaSea  = wms("modis.ba.poly.season", { opacity:0.45 });
+
+var gIncS = L.layerGroup().addTo(mapS);
+var gRoadS = L.layerGroup().addTo(mapS);
+var gAcS = L.layerGroup().addTo(mapS);
+var gTrackS = L.layerGroup().addTo(mapS);
+var gDropS = L.layerGroup().addTo(mapS);
+
+var ctlS = L.control.layers(
+  { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM },
+  { "Ocorrências":gIncS, "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
+    "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
+    "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
+    "Área ardida — VIIRS NRT":lBaNrt, "Área ardida — hoje":lBaDay,
+    "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea },
+  { collapsed:true }
+).addTo(mapS);
+
+var refMarker = L.marker([REF.lat,REF.lon], {
+  icon:L.divIcon({ className:"", html:'<div class="ref-icon"></div>',
+                   iconSize:[18,18], iconAnchor:[9,9] }),
+  zIndexOffset:1000, draggable:true, title:"Posição de referência"
+}).addTo(mapS);
+refMarker.on("dragend", function(){
+  var p = refMarker.getLatLng(); setRef(p.lat, p.lng, "Posição manual");
+});
+
+/* LSA-SAF: lê o GetCapabilities e regista o que lá estiver —
+   imune a mudanças de nome no serviço do IPMA */
+function discoverADAGUC(ds, prefix, opts){
+  var base = ADAGUC+"?dataset="+encodeURIComponent(ds)+"&";
+  return fetch(base+"service=WMS&request=GetCapabilities&version=1.3.0", {cache:"no-store"})
+    .then(function(r){ if (!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
+    .then(function(txt){
+      var doc = new DOMParser().parseFromString(txt, "text/xml");
+      if (doc.getElementsByTagName("parsererror").length) throw new Error("XML inválido");
+      var layers = doc.getElementsByTagName("Layer"), added = 0;
+      for (var i=0;i<layers.length;i++){
+        var L_=layers[i], nEl=null, tEl=null;
+        for (var c=0;c<L_.children.length;c++){
+          var ch=L_.children[c];
+          if (ch.tagName==="Name" && !nEl) nEl=ch;
+          if (ch.tagName==="Title" && !tEl) tEl=ch;
+        }
+        if (!nEl) continue;
+        var name=nEl.textContent.trim(); if (!name) continue;
+        var title=tEl?tEl.textContent.trim():name, t=null;
+        var dims=L_.getElementsByTagName("Dimension");
+        for (var d=0;d<dims.length;d++){
+          if ((dims[d].getAttribute("name")||"").toLowerCase()==="time"){
+            var def=dims[d].getAttribute("default"), vals=(dims[d].textContent||"").trim();
+            if (def) t=def;
+            else if (vals){
+              var parts=vals.split(","), last=parts[parts.length-1].split("/")[0];
+              if (last) t=last.trim();
+            }
+          }
+        }
+        var cfg = Object.assign({ layers:name, format:"image/png", transparent:true,
+          version:"1.3.0", opacity:0.75, attribution:"LSA-SAF / IPMA (CC BY 4.0)" }, opts||{});
+        if (t) cfg.time = t;
+        ctlS.addOverlay(L.tileLayer.wms(base, cfg), prefix+" "+title);
+        added++;
+      }
+      if (!added) throw new Error("sem camadas");
+      return added;
+    });
+}
+Promise.all([
+  discoverADAGUC("MSG-FRP","FRP",{opacity:0.85}).then(function(n){ return "FRP: "+n; })
+    .catch(function(e){ return "FRP falhou ("+e.message+")"; }),
+  discoverADAGUC("MSG-FRMv3","Risco",{opacity:0.5}).then(function(n){ return "Risco: "+n; })
+    .catch(function(e){ return "Risco falhou ("+e.message+")"; })
+]).then(function(r){
+  var bad = r.filter(function(s){ return s.indexOf("falhou")>=0; }).length;
+  DIAG_SAF = { ok: bad<2, msg:r.join(" · ") };
+  renderDiag();
+});
+
+/* ============================================================
+   MAPA — RADAR (criado só quando a vista é aberta)
+   ============================================================ */
+var mapR=null, gRings=null, gFiresR=null, gTrackR=null, gDropR=null, gAcR=null;
+var baseDark=null, labelsDark=null, lastZoom=null, ringTimer=null;
+
+function buildRadar(){
+  if (mapR) return;
+  mapR = L.map("mapR", { zoomControl:false, preferCanvas:true, maxZoom:16 })
+          .setView([REF.lat,REF.lon], 10);
+  L.control.zoom({ position:"bottomright" }).addTo(mapR);
+
+  mapR.createPane("labels");
+  mapR.getPane("labels").style.zIndex = 350;
+  mapR.getPane("labels").style.pointerEvents = "none";
+  mapR.createPane("mask");
+  mapR.getPane("mask").style.zIndex = 360;
+  mapR.getPane("mask").style.pointerEvents = "none";
+
+  var C = ESRI+"Canvas/";
+  baseDark = L.tileLayer(C+"World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+               { maxZoom:16, attribution:"&copy; Esri" }).addTo(mapR);
+  labelsDark = L.tileLayer(C+"World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+               { maxZoom:16, pane:"labels", opacity:0.9 }).addTo(mapR);
+  var rSat = L.tileLayer(ESRI+"World_Imagery/MapServer/tile/{z}/{y}/{x}",
+               { maxZoom:16, attribution:"Imagery &copy; Esri" });
+
+  var fell = false;
+  baseDark.on("tileerror", function(){
+    if (fell) return; fell = true;
+    mapR.removeLayer(baseDark); mapR.removeLayer(labelsDark);
+    document.body.classList.add("osmfall");
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { maxZoom:18, attribution:"&copy; OpenStreetMap" }).addTo(mapR);
+  });
+
+  gRings = L.layerGroup().addTo(mapR);
+  gFiresR = L.layerGroup().addTo(mapR);
+  gTrackR = L.layerGroup().addTo(mapR);
+  gDropR = L.layerGroup().addTo(mapR);
+  gAcR = L.layerGroup().addTo(mapR);
+
+  L.control.layers({ "Escuro (radar)":baseDark, "Satélite":rSat },
+                   { "Nomes de povoação":labelsDark },
+                   { collapsed:true, position:"topright" }).addTo(mapR);
+
+  lastZoom = mapR.getZoom();
+  mapR.on("zoomend", function(){
+    if (mapR.getZoom() === lastZoom) return;
+    lastZoom = mapR.getZoom();
+    clearTimeout(ringTimer);
+    ringTimer = setTimeout(drawRings, 90);
+  });
+  mapR.on("contextmenu", function(e){ setRef(e.latlng.lat, e.latlng.lng, "Posição manual"); });
+  mapR.on("popupopen", onPopupOpen);
+  longPress(mapR);
+
+  radarReady = true;
+  drawRings(); drawFires();
+}
+
+/* círculo geodésico: em Mercator um raio em pixels dá uma elipse */
+function circlePts(lat, lon, rM, n){
+  var R=6371000, pts=[], la1=lat*Math.PI/180, lo1=lon*Math.PI/180, d=rM/R;
+  for (var i=0;i<=n;i++){
+    var b=(i/n)*2*Math.PI;
+    var la2=Math.asin(Math.sin(la1)*Math.cos(d)+Math.cos(la1)*Math.sin(d)*Math.cos(b));
+    var lo2=lo1+Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(la1),
+                           Math.cos(d)-Math.sin(la1)*Math.sin(la2));
+    pts.push([la2*180/Math.PI, ((lo2*180/Math.PI+540)%360)-180]);
+  }
+  return pts;
+}
+function ptAt(lat,lon,rM,b){ return circlePts(lat,lon,rM,360)[Math.round(((b%360)+360)%360)]; }
+
+var PASSOS=[0.5,1,2,5,10,20,25,50];
+function passoAnel(){
+  var b=mapR.getBounds(), c=mapR.getCenter();
+  var vis=hav(c.lat,c.lng,b.getNorth(),c.lng);
+  var alvo=Math.min(vis,RADIUS_KM);
+  for (var i=0;i<PASSOS.length;i++) if (alvo/PASSOS[i] <= 5) return PASSOS[i];
+  return PASSOS[PASSOS.length-1];
+}
+
+function drawRings(){
+  if (!mapR) return;
+  gRings.clearLayers();
+  var rMax = RADIUS_KM*1000;
+  var cRing=cssVar("--ring"), cHi=cssVar("--ring-hi"), cEdge=cssVar("--edge"),
+      cMask=cssVar("--mask"), cSelf=cssVar("--ac-fire");
+
+  /* máscara: tudo fora do alcance escurece, como num PPI */
+  L.polygon([[[-89.9,-179.9],[-89.9,179.9],[89.9,179.9],[89.9,-179.9]],
+             circlePts(REF.lat,REF.lon,rMax,180)], {
+    pane:"mask", stroke:false, fillColor:cMask,
+    fillOpacity: theme==="dia" ? 0.82 : 0.76, interactive:false
+  }).addTo(gRings);
+
+  L.polygon(circlePts(REF.lat,REF.lon,rMax,180), {
+    color:cEdge, weight:2.2, opacity:1, fill:false, interactive:false
+  }).addTo(gRings);
+
+  var passo = passoAnel();
+  var b=mapR.getBounds(), c=mapR.getCenter();
+  var vis=hav(c.lat,c.lng,b.getNorth(),c.lng);
+  var ate=Math.min(RADIUS_KM, Math.max(vis*1.6, passo*5));
+
+  for (var km=passo; km<RADIUS_KM-0.01; km+=passo){
+    if (km > ate) break;
+    var forte = (km/passo)%5 === 0;
+    /* nunca abaixo de 1 px: sub-pixel é diluído até desaparecer */
+    L.polygon(circlePts(REF.lat,REF.lon,km*1000,120), {
+      color: forte?cHi:cRing, weight: forte?1.8:1.1, opacity: forte?1:0.85,
+      fill:false, interactive:false, dashArray: forte?null:"4,7"
+    }).addTo(gRings);
+    L.marker(ptAt(REF.lat,REF.lon,km*1000,45), {
+      icon:L.divIcon({ className:"",
+        html:'<div class="ring-lbl'+(forte?" hi":"")+'">'+(km<1?km.toFixed(1):km)+' km</div>',
+        iconSize:[46,12], iconAnchor:[23,6] }), interactive:false
+    }).addTo(gRings);
+  }
+  L.marker(ptAt(REF.lat,REF.lon,rMax,45), {
+    icon:L.divIcon({ className:"",
+      html:'<div class="ring-lbl hi">'+Math.round(RADIUS_KM)+' km · '+ADSB_RADIUS_NM+' NM</div>',
+      iconSize:[92,12], iconAnchor:[46,6] }), interactive:false
+  }).addTo(gRings);
+
+  for (var brg=0; brg<360; brg+=10){
+    var card = brg%90===0, rot = brg%30===0;
+    var inner = card ? 0 : rMax*(rot?0.955:0.978);
+    L.polyline([ inner?ptAt(REF.lat,REF.lon,inner,brg):[REF.lat,REF.lon],
+                 ptAt(REF.lat,REF.lon,rMax,brg) ], {
+      color: card?cRing:cEdge, weight: card?1:1.6, opacity: card?0.6:0.95, interactive:false
+    }).addTo(gRings);
+    if (rot){
+      L.marker(ptAt(REF.lat,REF.lon,rMax*1.045,brg), {
+        icon:L.divIcon({ className:"",
+          html:'<div class="brg-lbl">'+String(brg).padStart(3,"0")+'</div>',
+          iconSize:[30,12], iconAnchor:[15,6] }), interactive:false
+      }).addTo(gRings);
+    }
+  }
+
+  L.circleMarker([REF.lat,REF.lon], { radius:4, color:cSelf, weight:2,
+    fillColor:cSelf, fillOpacity:0.6 }).addTo(gRings);
+
+  var e = $("rEscala");
+  if (e) e.textContent = "anéis a "+(passo<1?passo.toFixed(1):passo)+
+                         " km · alcance "+Math.round(RADIUS_KM)+" km";
+}
+
+function drawFires(){
+  if (!mapR) return;
+  gFiresR.clearLayers();
+  var col = cssVar("--orange");
+  incidents.forEach(function(f){
+    var c = String(f.naturezaCode||"");
+    if (c && c.indexOf("31") !== 0) return;
+    L.circleMarker([f.lat,f.lng], { radius:8, color:col, weight:1.4,
+      fillColor:col, fillOpacity:0.16 })
+      .bindPopup('<b>'+esc(f.freguesia||f.concelho||"Ocorrência")+'</b><br>'+esc(f.status||""))
+      .addTo(gFiresR);
+  });
+}
+
+function longPress(map){
+  var timer=null, start=null, c=map.getContainer();
+  c.addEventListener("touchstart", function(ev){
+    if (ev.touches.length !== 1) return;
+    var t=ev.touches[0]; start={x:t.clientX,y:t.clientY};
+    timer=setTimeout(function(){
+      timer=null;
+      var p=map.containerPointToLatLng(
+        map.mouseEventToContainerPoint({clientX:start.x,clientY:start.y}));
+      setRef(p.lat,p.lng,"Posição manual");
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, 650);
+  }, {passive:true});
+  function cancel(ev){
+    if (timer && ev && ev.touches && ev.touches.length===1 && start){
+      var t=ev.touches[0];
+      if (Math.abs(t.clientX-start.x)<12 && Math.abs(t.clientY-start.y)<12) return;
+    }
+    if (timer){ clearTimeout(timer); timer=null; }
+  }
+  c.addEventListener("touchmove",cancel,{passive:true});
+  c.addEventListener("touchend",cancel,{passive:true});
+  c.addEventListener("touchcancel",cancel,{passive:true});
+}
+
+/* ============================================================
+   MARCADORES DE AERONAVE — partilhados pelas duas vistas
+   Criados uma vez; depois só se mexe no estilo. Recriar o ícone
+   a cada tick gerava a pressão de recolha de lixo que se sentia
+   como paradinhas.
+   ============================================================ */
+var marksS = {}, marksR = {};
+
+function acIcon(col, trk, fire, txt, comTag){
+  return L.divIcon({
+    className:"ac-sym",
+    html:'<svg width="22" height="22" viewBox="0 0 24 24" style="transform:rotate('+trk+'deg)">'+
+         '<path d="M12 3 L16 14 L12 11.6 L8 14 Z" fill="'+col+'"/>'+
+         '<path d="M12 11.6 L13.7 20 L12 18.9 L10.3 20 Z" fill="'+col+'" opacity=".8"/></svg>'+
+         (comTag ? '<div class="tag'+(fire?" fire":"")+'">'+txt+'</div>' : ''),
+    iconSize:[22,22], iconAnchor:[11,11]
+  });
+}
+function setOp(m,op){ var e=m.mk.getElement(); if (e) e.style.opacity = op; }
+function setTrk(m,t){
+  var e=m.mk.getElement(); if (!e) return;
+  var s=e.querySelector("svg"); if (s) s.style.transform="rotate("+t+"deg)";
+}
+function setTxt(m,txt,fire){
+  var e=m.mk.getElement(); if (!e) return;
+  var t=e.querySelector(".tag"); if (!t) return;
+  if (t.innerHTML !== txt) t.innerHTML = txt;
+  t.className = "tag"+(fire?" fire":"");
+}
+
+function upsert(store, group, key, x, col, txt, comTag, popup){
+  var a = x.a, trk = Math.round(num(a.track));
+  var m = store[key];
+  if (!m){
+    m = store[key] = { mk: L.marker([a.lat,a.lon],
+          { icon:acIcon(col,trk,x.fire,txt,comTag) }).addTo(group) };
+    m.trk=trk; m.col=col; m.fire=x.fire; m.txt=txt;
+  } else if (m.col!==col || m.fire!==x.fire){
+    m.mk.setIcon(acIcon(col,trk,x.fire,txt,comTag));
+    m.col=col; m.fire=x.fire; m.trk=trk; m.txt=txt;
+  } else {
+    if (m.trk!==trk){ setTrk(m,trk); m.trk=trk; }
+    if (comTag && m.txt!==txt){ setTxt(m,txt,x.fire); m.txt=txt; }
+  }
+  m.lat=a.lat; m.lon=a.lon; m.gs=num(a.gs);
+  m.hex=a.hex||""; m.reg=a.r||"";
+  m.t0 = Date.now() - Math.min(num(a.seen_pos), DR_MAX_S*0.8)*1000;
+  m.alive = true;
+  m.mk.setLatLng([a.lat,a.lon]);
+  m.mk.setZIndexOffset(x.fire?700:300);
+  if (m.lastOp !== 1){ setOp(m,1); m.lastOp=1; }
+
+  /* re-bind fecharia um popup que estivesse a ser lido */
+  if (m.mk.getPopup()){
+    if (!m.mk.isPopupOpen()) m.mk.setPopupContent(popup);
+  } else {
+    m.mk.bindPopup(popup, { minWidth:210, maxWidth:270 });
+  }
+  return m;
+}
+
+function sweep(store, group){
+  var now = Date.now();
+  Object.keys(store).forEach(function(k){
+    var m = store[k];
+    if (m.alive) return;
+    /* a cobertura em vale é intermitente: dar folga antes de apagar */
+    if (now - m.t0 > DR_MAX_S*2000){ group.removeLayer(m.mk); delete store[k]; }
+  });
+}
+
+function animate(){
+  if (document.hidden) return;
+  var store = view === "radar" ? marksR : marksS;
+  var now = Date.now();
+  Object.keys(store).forEach(function(k){
+    var m = store[k];
+    var dt = (now-m.t0)/1000; if (dt<0) dt=0;
+    var op = dt <= DR_MAX_S*0.5 ? 1 : Math.max(0.2, 1-(dt-DR_MAX_S*0.5)/(DR_MAX_S*1.5));
+    if (dt > DR_MAX_S || !m.gs || m.gs < 5){
+      if (Math.abs((m.lastOp||1)-op) > 0.03){ setOp(m,op); m.lastOp=op; }
+      return;
+    }
+    var d = m.gs*0.514444*dt, r = m.trk*Math.PI/180;
+    m.mk.setLatLng([ m.lat + (d*Math.cos(r))/111320,
+                     m.lon + (d*Math.sin(r))/(111320*Math.cos(m.lat*Math.PI/180)) ]);
+    if (Math.abs((m.lastOp||1)-op) > 0.03){ setOp(m,op); m.lastOp=op; }
+  });
+}
+if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches){
+  setInterval(animate, 500);
+}
+
+/* ---------- foto da aeronave ---------- */
+function loadPhoto(box, hex, reg){
+  var key = (hex||reg||"").toUpperCase();
+  if (!key) return;
+  if (photoCache[key] !== undefined){ box.innerHTML = photoCache[key] || ""; return; }
+  box.innerHTML = '<div class="pp-wait">a procurar fotografia…</div>';
+  var u = hex ? "https://api.planespotters.net/pub/photos/hex/"+encodeURIComponent(hex)
+              : "https://api.planespotters.net/pub/photos/reg/"+encodeURIComponent(reg);
+  fetchVia(u, 9000).then(function(r){
+    var ph = (r.data && r.data.photos && r.data.photos[0]) || null;
+    var src = ph && ((ph.thumbnail_large && ph.thumbnail_large.src) ||
+                     (ph.thumbnail && ph.thumbnail.src));
+    if (!src){ photoCache[key]=""; box.innerHTML=""; return; }
+    var html = '<a href="'+esc(ph.link||"#")+'" target="_blank" rel="noopener">'+
+               '<img class="pp-img" src="'+esc(src)+'" alt="Fotografia da aeronave" loading="lazy"></a>'+
+               '<div class="pp-cred">© '+esc(ph.photographer||"desconhecido")+' · Planespotters</div>';
+    photoCache[key] = html; box.innerHTML = html;
+  }).catch(function(){ photoCache[key]=""; box.innerHTML=""; });
+}
+function onPopupOpen(e){
+  var el = e.popup.getElement(); if (!el) return;
+  var pp = el.querySelector(".pp"), box = el.querySelector(".pp-photo");
+  if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg);
+}
+mapS.on("popupopen", onPopupOpen);
+
+/* ============================================================
+   RENDER — comum
+   ============================================================ */
+function statusClass(s, code){
+  s = (s||"").toLowerCase();
+  if (s.indexOf("curso")>=0 || s.indexOf("despacho")>=0) return "s-red";
+  if (s.indexOf("chegada")>=0) return "s-orange";
+  if (s.indexOf("resolu")>=0) return "s-amber";
+  if (s.indexOf("vigil")>=0 || s.indexOf("conclus")>=0) return "s-green";
+  if (s.indexOf("encerrad")>=0 || s.indexOf("falso")>=0) return "s-grey";
+  return code >= 7 ? "s-green" : "s-orange";
+}
+function statusHex(c){
+  return { "s-red":cssVar("--red"), "s-orange":cssVar("--orange"),
+           "s-amber":cssVar("--amber"), "s-green":cssVar("--green"),
+           "s-grey":cssVar("--rule-hi") }[c] || cssVar("--orange");
+}
+
+function acPopup(x){
+  var a=x.a;
+  var id=(a.flight||"").trim()||a.r||a.hex||"—";
+  var alt=a.alt_baro==="ground"?"no solo":Math.round(num(a.alt_baro))+" ft";
+  return '<div class="pp" data-hex="'+esc(a.hex||"")+'" data-reg="'+esc(a.r||"")+'">'+
+    '<b>'+esc(id)+'</b><br><span class="mono">'+esc(x.label)+(a.r?" · "+esc(a.r):"")+'</span><br>'+
+    '<span class="mono">'+alt+' · '+Math.round(num(a.gs))+' kt · rumo '+
+      Math.round(num(a.track))+'°</span><br>'+
+    '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s</span><br>'+
+    '<span class="mono">'+(x.fire ? (x.reason==="tipo"
+      ? "Tipo conhecido de combate" : "Perfil de voo compatível") : "Tráfego geral")+'</span>'+
+    '<div class="pp-photo"></div></div>';
+}
+
+/* ============================================================
+   RENDER — SITREP
+   ============================================================ */
+function renderIncidents(){
+  if (view !== "sitrep") return;
+  var body = $("incBody");
+  gIncS.clearLayers();
+
+  if (DIAG.incidents.ok === false){
+    showError(body, "Não foi possível obter as ocorrências da ANEPC.", DIAG.incidents.msg, "incNote");
+    $("cInc").textContent = "erro"; return;
+  }
+  if (DIAG.incidents.ok === null){
+    body.innerHTML = '<div class="state">A carregar ocorrências…</div>'; return;
+  }
+
+  var pool = onlyFires ? incidents.filter(function(i){
+    var c = String(i.naturezaCode||"");
+    if (c) return c.indexOf("31")===0;
+    if (typeof i.isFire === "boolean") return i.isFire;
+    return /inc[êe]ndio|mato|povoamento|agr[íi]cola/i.test(i.natureza||"");
+  }) : incidents;
+
+  $("cInc").textContent = String(pool.length);
+  if (!pool.length){
+    body.innerHTML = '<div class="state">'+
+      (onlyFires ? "Nenhum incêndio rural ativo nos dados recebidos. Usa “Todas” para as restantes."
+                 : "Nenhuma ocorrência ativa nos dados recebidos.")+'</div>';
+    return;
+  }
+
+  var en = pool.map(function(i){
+    return { i:i, dist:hav(REF.lat,REF.lon,i.lat,i.lng),
+             brgToRef:brgTo(i.lat,i.lng,REF.lat,REF.lon) };
+  }).sort(function(a,b){ return a.dist-b.dist; });
+
+  var spreadTo = wx ? (wx.dir+180)%360 : null;
+  var near = en.filter(function(e){ return e.dist <= 60; });
+  var show = near.length ? near.slice(0,25) : en.slice(0,10);
+  $("incNote").textContent = near.length
+    ? "ANEPC · "+near.length+" num raio de 60 km"
+    : "ANEPC · nada a menos de 60 km, a mostrar as mais próximas";
+
+  var html = "";
+  show.forEach(function(e){
+    var i=e.i, cls=statusClass(i.status,i.statusCode);
+    var man = i.man==null?null:num(i.man), ter = i.terrain==null?null:num(i.terrain),
+        aer = i.aerial==null?null:num(i.aerial);
+    var hasM = man !== null;
+    function sh(v){ return v===null?"—":v; }
+    var ba = (i.icnf && i.icnf.burnArea) ? i.icnf.burnArea : null;
+    var baTot = (ba && isFinite(ba.total)) ? ba.total : null;
+    function ha(v){ return !isFinite(v) ? "—" : (v>=100?Math.round(v).toLocaleString("pt-PT"):v.toFixed(1)); }
+
+    /* estás a sotavento? o fogo corre no rumo `spreadTo` */
+    var downwind = spreadTo !== null && e.dist <= 25 && angDiff(e.brgToRef, spreadTo) <= 40;
+
+    html += '<div class="inc '+cls+'" data-lat="'+i.lat+'" data-lng="'+i.lng+'">'+
+      '<div class="inc-top"><span class="inc-where">'+esc(i.freguesia||i.concelho||"—")+'</span>'+
+      '<span class="inc-dist">'+e.dist.toFixed(1)+' km '+compass(brgTo(REF.lat,REF.lon,i.lat,i.lng))+'</span></div>'+
+      '<div class="inc-meta">'+esc(i.concelho||"")+(i.district?' · '+esc(i.district):'')+
+        (i.natureza?' · '+esc(i.natureza):'')+'</div>'+
+      '<div class="inc-row"><span class="pill '+cls+'">'+esc(i.status||"—")+'</span>'+
+        (hasM ? '<span class="res"><b>'+sh(man)+'</b> op</span>'+
+                '<span class="res"><b>'+sh(ter)+'</b> terr</span>'+
+                '<span class="res"><b>'+sh(aer)+'</b> aér</span>'+
+                (i.entidades?'<span class="res"><b>'+i.entidades+'</b> ent</span>':'')
+              : '<span class="res">meios n/d</span>')+
+        (i.hour?'<span class="res">desde '+esc(i.hour)+'</span>':'')+
+        (i.duracaoMin?'<span class="res">'+dur(i.duracaoMin)+'</span>':'')+
+        (i.fase?'<span class="res">'+esc(i.fase)+'</span>':'')+
+      '</div>'+
+      (baTot!==null && baTot>0 ? '<div class="ba"><span class="ba-tot">'+ha(baTot)+' ha</span>'+
+        '<span class="ba-brk">povoamento '+ha(ba.povoamento)+' · mato '+ha(ba.mato)+
+        ' · agrícola '+ha(ba.agricola)+'</span></div>' : '')+
+      (downwind?'<span class="warn">A tua posição está a sotavento desta ocorrência</span>':'')+
+    '</div>';
+
+    var col = statusHex(cls);
+    L.circleMarker([i.lat,i.lng], {
+      radius: hasM ? 7+Math.min(11,Math.sqrt(man)*1.1) : 8,
+      color:col, weight:2, fillColor:col, fillOpacity:0.28
+    }).bindPopup(
+      '<b>'+esc(i.freguesia||i.concelho||"Ocorrência")+'</b><br>'+
+      esc(i.concelho||"")+(i.district?", "+esc(i.district):"")+'<br>'+
+      '<span class="mono">'+esc(i.natureza||"—")+' · '+esc(i.status||"—")+'</span><br>'+
+      '<span class="mono">'+(hasM ? sh(man)+' operacionais · '+sh(ter)+' veículos · '+sh(aer)+' aéreos'
+                                  : 'meios não reportados')+'</span><br>'+
+      (i.duracaoMin?'<span class="mono">a arder há '+dur(i.duracaoMin)+'</span><br>':'')+
+      '<span class="mono">'+e.dist.toFixed(1)+' km de ti</span>'
+    ).addTo(gIncS);
+  });
+
+  body.innerHTML = html;
+  bindRows(body, ".inc", mapS, 13);
+}
+
+function renderRoads(){
+  if (view !== "sitrep") return;
+  gRoadS.clearLayers();
+  var el = $("roadBody");
+  $("cRoad").textContent = roads.length ? String(roads.length) : "0";
+
+  if (!roads.length){
+    el.innerHTML = '<div class="state">Sem condicionamentos nas últimas 24 h no raio consultado. '+
+      'Ausência de registo não é garantia de via livre — um corte decidido no terreno pela GNR '+
+      'pode nunca chegar a esta base de dados.</div>';
+    return;
+  }
+
+  var lista = roads.map(function(i){
+    var nf = Infinity;
+    incidents.forEach(function(f){
+      var k = hav(i.lat,i.lng,f.lat,f.lng); if (k<nf) nf=k;
+    });
+    return { i:i, dist:hav(REF.lat,REF.lon,i.lat,i.lng),
+             brg:brgTo(REF.lat,REF.lon,i.lat,i.lng), nf:nf };
+  }).sort(function(a,b){ return a.dist-b.dist; });
+
+  var html = "";
+  lista.slice(0,20).forEach(function(r){
+    var i=r.i, linked = r.nf <= 5;
+    html += '<div class="inc '+(i._block?"s-orange":"s-grey")+'" data-lat="'+i.lat+'" data-lng="'+i.lng+'">'+
+      '<div class="inc-top"><span class="inc-where">'+esc(i.freguesia||"—")+'</span>'+
+      '<span class="inc-dist">'+r.dist.toFixed(1)+' km '+compass(r.brg)+'</span></div>'+
+      '<div class="inc-meta">'+esc(i._rotulo)+(i.hour?' · desde '+esc(i.hour):'')+'</div>'+
+      '<div class="inc-row"><span class="pill '+statusClass(i.status,i.statusCode)+'">'+
+        esc(i.status||"—")+'</span>'+
+        (i._block?'<span class="res">via afetada</span>':'<span class="res">acidente</span>')+'</div>'+
+      (linked?'<span class="warn">A '+r.nf.toFixed(1)+' km de um incêndio ativo — pode agravar</span>':'')+
+    '</div>';
+
+    var col = i._block ? cssVar("--orange") : cssVar("--ink-mute");
+    L.marker([i.lat,i.lng], {
+      icon:L.divIcon({ className:"",
+        html:'<div style="width:16px;height:16px;background:'+col+
+             ';border:2px solid var(--void);transform:rotate(45deg)"></div>',
+        iconSize:[16,16], iconAnchor:[8,8] })
+    }).bindPopup('<b>'+esc(i._rotulo)+'</b><br>'+esc(i.freguesia||"")+'<br>'+
+      '<span class="mono">'+esc(i.status||"—")+' · desde '+esc(i.hour||"?")+'</span>')
+      .addTo(gRoadS);
+  });
+
+  el.innerHTML = html;
+  bindRows(el, ".inc", mapS, 14);
+}
+
+function renderWeather(){
+  if (view !== "sitrep" || !wx) return;
+  var spreadTo = (wx.dir+180)%360;
+  $("cWind").textContent = Math.round(wx.speed)+" km/h";
+  var dim = cssVar("--ink-mute"), acc = cssVar("--orange"), ink = cssVar("--ink");
+
+  var rose =
+    '<svg viewBox="0 0 100 100" width="118" height="118" role="img" aria-label="Vento de '+
+      compass(wx.dir)+', propagação para '+compass(spreadTo)+'">'+
+    '<circle cx="50" cy="50" r="42" fill="none" stroke="'+cssVar("--rule")+'" stroke-width="1.5"/>'+
+    '<circle cx="50" cy="50" r="28" fill="none" stroke="'+cssVar("--panel-2")+'" stroke-width="1"/>'+
+    '<text x="50" y="13" fill="'+dim+'" font-size="10" text-anchor="middle">N</text>'+
+    '<text x="92" y="54" fill="'+dim+'" font-size="10" text-anchor="middle">E</text>'+
+    '<text x="50" y="96" fill="'+dim+'" font-size="10" text-anchor="middle">S</text>'+
+    '<text x="8" y="54" fill="'+dim+'" font-size="10" text-anchor="middle">W</text>'+
+    '<g transform="rotate('+spreadTo.toFixed(1)+' 50 50)">'+
+      '<line x1="50" y1="62" x2="50" y2="26" stroke="'+acc+'" stroke-width="4" stroke-linecap="round"/>'+
+      '<polygon points="50,17 44,31 56,31" fill="'+acc+'"/></g>'+
+    '<circle cx="50" cy="50" r="3" fill="'+ink+'"/></svg>';
+
+  $("windBody").innerHTML =
+    '<div class="wind"><div class="rose">'+rose+'</div><div class="wind-read">'+
+    '<div class="big">'+Math.round(wx.speed)+'<span>km/h</span></div>'+
+    '<div class="from">de '+compass(wx.dir)+' · '+Math.round(wx.dir)+'°</div>'+
+    '<div class="spread"><div class="lbl">Propagação provável</div>'+
+    '<div class="val">para '+compass(spreadTo)+' · '+Math.round(spreadTo)+'°</div></div>'+
+    '</div></div>'+
+    '<div class="metrics">'+
+    '<div class="metric"><div class="lbl">Rajada</div><div class="val">'+Math.round(wx.gust)+'</div></div>'+
+    '<div class="metric"><div class="lbl">Temp</div><div class="val'+(wx.temp>=32?" hot":"")+'">'+
+      Math.round(wx.temp)+'°</div></div>'+
+    '<div class="metric"><div class="lbl">Hum. rel.</div><div class="val'+(wx.rh<=30?" dry":"")+'">'+
+      Math.round(wx.rh)+'%</div></div></div>'+
+    '<p class="pane-note" style="padding-left:0;padding-right:0">Vento a 10 m no ponto de '+
+    'referência. Em vale encaixado a direção real pode divergir muito deste valor.</p>';
+}
+
+function renderAircraft(){
+  var nFire = acs.filter(function(x){ return x.fire; }).length;
+  var ages = acs.map(function(x){ return num(x.a.seen_pos); }).sort(function(p,q){ return p-q; });
+  var med = ages.length ? Math.round(ages[Math.floor(ages.length/2)]) : 0;
+
+  if (view === "sitrep"){
+    Object.keys(marksS).forEach(function(k){ marksS[k].alive = false; });
+    $("cAc").textContent = acs.length+(nFire?" · "+nFire+" comb.":"");
+    $("acNote").textContent = "Fonte "+acSource+(acVia&&acVia!=="direto"?" via "+acVia:"")+
+      " · raio "+ADSB_RADIUS_NM+" NM · "+(nFire?nFire+" compatíveis com combate":"nenhuma de combate")+
+      (ages.length?" · posições com "+med+" s em mediana":"")+
+      (acFmt==="opensky"?" · OpenSky não publica tipo":"");
+
+    var html = "";
+    acs.forEach(function(x, idx){
+      var a=x.a, key=a.hex||a.r||(a.flight||"").trim(); if (!key) return;
+      var id=(a.flight||"").trim()||a.r||key;
+      var alt=a.alt_baro==="ground"?"solo":Math.round(num(a.alt_baro)).toLocaleString("pt-PT")+" ft";
+      var col = x.fire ? cssVar("--orange") : cssVar("--blue");
+
+      if (idx < 30){
+        html += '<div class="ac'+(x.fire?" fire":"")+'" data-lat="'+a.lat+'" data-lng="'+a.lon+'">'+
+          '<div class="ac-tag"><svg width="20" height="20" viewBox="0 0 24 24" '+
+            'style="transform:rotate('+Math.round(num(a.track))+'deg)">'+
+            '<path d="M12 2 L15.5 13 L12 11 L8.5 13 Z" fill="'+col+'"/>'+
+            '<path d="M12 11 L14 20 L12 18.8 L10 20 Z" fill="'+col+'" opacity="0.75"/></svg></div>'+
+          '<div class="ac-main"><div class="ac-id">'+esc(id)+'</div>'+
+          '<div class="ac-sub">'+esc(x.label)+(a.r?' · '+esc(a.r):'')+' · '+
+            Math.round(num(a.gs))+' kt · '+x.dist.toFixed(0)+' km'+
+            (num(a.seen_pos)>20?' · há '+Math.round(num(a.seen_pos))+' s':'')+'</div></div>'+
+          '<div class="ac-alt">'+alt+'</div></div>';
+      }
+      upsert(marksS, gAcS, key, x, col, "", false, acPopup(x));
+    });
+    sweep(marksS, gAcS);
+    $("acBody").innerHTML = html || '<div class="state">Nenhuma aeronave recebida neste raio. '+
+      'A cobertura ADS-B no interior é irregular — ausência não significa ausência de meios.</div>';
+    bindRows($("acBody"), ".ac", mapS, 12);
+    renderTracks(gTrackS, gDropS);
+
+  } else if (radarReady){
+    Object.keys(marksR).forEach(function(k){ marksR[k].alive = false; });
+    $("rNac").textContent = String(acs.length);
+    $("rNfire").textContent = String(nFire);
+    $("rSrc").textContent = acSource+" · "+ADSB_RADIUS_NM+" NM · posições com "+med+" s";
+
+    var rows = "";
+    acs.forEach(function(x, idx){
+      var a=x.a, key=a.hex||a.r||(a.flight||"").trim(); if (!key) return;
+      var id=(a.flight||"").trim()||a.r||key;
+      var fl=a.alt_baro==="ground"?"SOLO":String(Math.round(num(a.alt_baro)/100)).padStart(3,"0");
+      var col = x.fire ? cssVar("--ac-fire") : cssVar("--ac-gen");
+      var txt = esc(id)+"<br>"+fl+"  "+Math.round(num(a.gs));
+
+      if (idx < 22){
+        var tk = tracks[key], ag = "—";
+        if (tk && tk.pts.length){
+          var lp = tk.pts[tk.pts.length-1];
+          if (lp.agl !== null && isFinite(lp.agl)) ag = Math.round(lp.agl);
+        }
+        rows += '<div class="row'+(x.fire?" fire":"")+(num(a.seen_pos)>25?" stale":"")+
+          '" data-lat="'+a.lat+'" data-lng="'+a.lon+'">'+
+          '<span class="cs">'+esc(id)+'</span><span class="ty">'+esc(x.label)+'</span>'+
+          '<span class="n">'+(a.alt_baro==="ground"?"solo":Math.round(num(a.alt_baro)).toLocaleString("pt-PT"))+'</span>'+
+          '<span class="n">'+Math.round(num(a.gs))+'</span><span class="n">'+ag+'</span></div>';
+      }
+      upsert(marksR, gAcR, key, x, col, txt, true, acPopup(x));
+    });
+    sweep(marksR, gAcR);
+    $("rRows").innerHTML = rows || '<div class="empty">Nenhum contacto neste raio. '+
+      'A cobertura ADS-B no interior é irregular.</div>';
+    bindRows($("rRows"), ".row", mapR, 12);
+    renderTracks(gTrackR, gDropR);
+  }
+}
+
+function renderTracks(gT, gD){
+  gT.clearLayers(); gD.clearLayers();
+  var cf = cssVar("--ac-fire"), cd = cssVar("--drop");
+
+  Object.keys(tracks).forEach(function(h){
+    var tk = tracks[h];
+    if (!tk.fire || tk.pts.length < 2) return;
+    L.polyline(tk.pts.map(function(p){ return [p.lat,p.lon]; }), {
+      color:cf, weight:1.4, opacity:0.4, dashArray:"4,4", interactive:false }).addTo(gT);
+  });
+
+  var conf = drops.filter(function(d){ return d.confident; });
+  conf.forEach(function(d){
+    var age = (Date.now()-d.t)/60000;
+    L.circleMarker([d.lat,d.lon], { radius:6, color:cd, weight:1.8,
+      fillColor:cd, fillOpacity:Math.max(.2, 1-age/TRACK_MAX_MIN)*0.7 })
+      .bindPopup('<b>Descarga provável</b><br><span class="mono">'+esc(d.id)+'</span><br>'+
+        '<span class="mono">'+d.agl+' m acima do solo, subiu '+d.rise+' m</span><br>'+
+        '<span class="mono">ocorrência a '+d.nearKm.toFixed(1)+' km · alt. por '+esc(d.method)+'</span><br>'+
+        '<span class="mono">há '+Math.round(age)+' min</span>')
+      .addTo(gD);
+  });
+  /* o eixo: descargas por ordem temporal mostram para onde corre a frente */
+  if (conf.length >= 2){
+    L.polyline(conf.map(function(d){ return [d.lat,d.lon]; }), {
+      color:cd, weight:2.6, opacity:0.55, interactive:false }).addTo(gD);
+  }
+  if (view === "radar" && radarReady) $("rNdrop").textContent = String(conf.length);
+}
+
+function renderDrops(){
+  var conf = drops.filter(function(d){ return d.confident; });
+  var maybe = drops.filter(function(d){ return !d.confident; });
+  if (view === "radar" && radarReady){ $("rNdrop").textContent = String(conf.length); return; }
+  if (view !== "sitrep") return;
+
+  var el = $("dropBody");
+  $("cDrop").textContent = String(conf.length);
+
+  var known = 0;
+  Object.keys(tracks).forEach(function(h){
+    tracks[h].pts.forEach(function(p){ if (p.agl !== null) known++; });
+  });
+
+  if (!conf.length){
+    el.innerHTML = '<div class="state">'+
+      (known===0 ? "Ainda sem cota do terreno para as trajetórias. A altura acima do solo precisa de alguns ciclos a acumular posições."
+                 : "Nenhuma descarga detetada nos últimos "+TRACK_MAX_MIN+" min."+
+                   (maybe.length?" "+maybe.length+" passagem(ns) baixa(s) longe de ocorrências — provável recolha de água ou aterragem.":""))+
+      '</div>';
+    return;
+  }
+
+  var by = {};
+  conf.forEach(function(d){ (by[d.hex]=by[d.hex]||[]).push(d); });
+  var html = "";
+  Object.keys(by).forEach(function(h){
+    var ds=by[h], last=ds[ds.length-1], age=Math.round((Date.now()-last.t)/60000);
+    html += '<div class="ac fire" data-lat="'+last.lat+'" data-lng="'+last.lon+'">'+
+      '<div class="ac-tag" style="border-color:var(--red)"><span style="font-family:var(--f-mono);'+
+      'font-size:14px;font-weight:600;color:var(--red)">'+ds.length+'</span></div>'+
+      '<div class="ac-main"><div class="ac-id" style="color:var(--red)">'+esc(last.id)+'</div>'+
+      '<div class="ac-sub">'+esc(last.type)+' · última há '+age+' min · '+last.agl+' m AGL</div></div>'+
+      '<div class="ac-alt">'+last.nearKm.toFixed(1)+' km</div></div>';
+  });
+  if (maybe.length){
+    html += '<p class="pane-note" style="padding-left:0;padding-right:0">'+maybe.length+
+      ' passagem(ns) baixa(s) a mais de '+NEAR_FIRE_KM+' km de qualquer ocorrência — '+
+      'não contadas: provável recolha de água ou aterragem.</p>';
+  }
+  el.innerHTML = html;
+  bindRows(el, ".ac", mapS, 14);
+}
+
+function bindRows(root, sel, map, zoom){
+  Array.prototype.forEach.call(root.querySelectorAll(sel), function(n){
+    n.addEventListener("click", function(){
+      if (map) map.setView([parseFloat(n.dataset.lat), parseFloat(n.dataset.lng)], zoom);
+    });
+  });
+}
+
+/* ---------- diagnóstico ---------- */
+var DIAG_LABEL = { incidents:"Ocorrências", weather:"Meteorologia", aircraft:"ADS-B" };
+function renderDiag(){
+  if (view !== "sitrep") return;
+  var html = "";
+  ["incidents","weather","aircraft"].forEach(function(k){
+    var d = DIAG[k], cls = d.ok===true?"ok":(d.ok===false?"bad":"");
+    html += '<div class="dg '+(d.ok===false?"bad":"")+'"><div class="dg-top">'+
+      '<span class="dot '+cls+'"></span><span class="nm">'+DIAG_LABEL[k]+'</span>'+
+      '<span class="via">'+esc(d.via)+'</span></div>'+
+      (d.msg?'<div class="msg">'+esc(d.msg)+'</div>':'')+'</div>';
+  });
+
+  var s = netSummary();
+  var modeTxt = netMode.direct===true?"tudo direto":netMode.direct===false?"tudo por proxy":
+                netMode.direct==="misto"?(s.ok+" direto · "+s.bad+" por proxy"):"a avaliar";
+  var lines = Object.keys(netHost).sort().map(function(h){
+    var st = netHost[h].direct;
+    return h.replace(/^(api|opendata|services-eu1|maps|adaguc)\./,"")+
+           (st===true?" direto":st===false?" proxy":" ?");
+  });
+  html += '<div class="dg '+(netMode.direct===false?"bad":"")+'"><div class="dg-top">'+
+    '<span class="dot '+(netMode.direct===true?"ok":(netMode.direct===false?"bad":""))+'"></span>'+
+    '<span class="nm">Rede</span><span class="via">'+esc(modeTxt)+'</span></div>'+
+    '<div class="msg">'+esc(lines.join(" · "))+
+    (usingProxy()?'<br>Cadência aliviada. Servir por HTTP dispensa os proxies.':'')+'</div></div>';
+
+  if (DIAG_SAF.ok !== null){
+    html += '<div class="dg '+(DIAG_SAF.ok?"":"bad")+'"><div class="dg-top">'+
+      '<span class="dot '+(DIAG_SAF.ok?"ok":"bad")+'"></span><span class="nm">LSA-SAF</span>'+
+      '<span class="via">IPMA · 15 min</span></div><div class="msg">'+esc(DIAG_SAF.msg)+'</div></div>';
+  }
+  if (location.protocol === "file:"){
+    html += '<div class="dg bad"><div class="dg-top"><span class="dot bad"></span>'+
+      '<span class="nm">Origem</span><span class="via">file://</span></div>'+
+      '<div class="msg">Aberto do disco: o browser envia Origin: null e várias APIs recusam. '+
+      'Servir por HTTP resolve.</div></div>';
+  }
+  $("diag").innerHTML = html;
+}
+
+/* ============================================================
+   VISTA, TEMA, POSIÇÃO, CICLOS
+   ============================================================ */
+function setView(v){
+  view = v;
+  $("viewSitrep").hidden = v !== "sitrep";
+  $("viewRadar").hidden  = v !== "radar";
+  $("vSitrep").setAttribute("aria-pressed", v==="sitrep"?"true":"false");
+  $("vRadar").setAttribute("aria-pressed",  v==="radar"?"true":"false");
+  $("btnFires").hidden = v !== "sitrep";
+  try { localStorage.setItem("sitrep_vista", v); } catch(e){}
+
+  if (v === "radar"){
+    buildRadar();
+    setTimeout(function(){ mapR.invalidateSize(); drawRings(); }, 30);
+  } else {
+    setTimeout(function(){ mapS.invalidateSize(); }, 30);
+  }
+  /* a vista que estava escondida não foi desenhada enquanto esteve fora */
+  renderIncidents(); renderRoads(); renderWeather();
+  renderAircraft(); renderDrops(); renderDiag();
+}
+
+function aplicaTema(){
+  document.body.classList.toggle("dia", theme === "dia");
+  $("btnTheme").textContent = theme === "dia" ? "Modo radar" : "Modo dia";
+  /* as cores desenhadas vêm dos tokens: é preciso redesenhar */
+  renderIncidents(); renderRoads(); renderWeather();
+  if (radarReady){ drawRings(); drawFires(); }
+  var store = view==="radar" ? marksR : marksS;
+  Object.keys(store).forEach(function(k){
+    var m = store[k];
+    m.col = m.fire ? cssVar(view==="radar"?"--ac-fire":"--orange")
+                   : cssVar(view==="radar"?"--ac-gen":"--blue");
+    m.mk.setIcon(acIcon(m.col, m.trk, m.fire, m.txt||"", view==="radar"));
+    setOp(m, m.lastOp||1);
+  });
+  renderAircraft();
+}
+
+function setRef(lat, lon, name){
+  REF.lat=lat; REF.lon=lon; REF.name=name||REF.name;
+  refMarker.setLatLng([lat,lon]);
+  $("refName").textContent = REF.name+" · "+lat.toFixed(4)+", "+lon.toFixed(4);
+  $("rPos").textContent = lat.toFixed(4)+", "+lon.toFixed(4);
+  if (radarReady) drawRings();
+  /* o PROCIV é consultado por geometria centrada em REF: sem recarregar,
+     o raio ficaria no ponto antigo e as distâncias no novo */
+  loadIncidents(); loadWeather(); loadAircraft();
+}
+
+var pickMode = false;
+$("btnRef").addEventListener("click", function(){
+  pickMode = !pickMode;
+  this.setAttribute("aria-pressed", pickMode?"true":"false");
+  this.textContent = pickMode ? "Clique no mapa" : "Posição";
+  mapS.getContainer().style.cursor = pickMode ? "crosshair" : "";
+});
+mapS.on("click", function(e){
+  if (!pickMode) return;
+  pickMode = false;
+  $("btnRef").setAttribute("aria-pressed","false");
+  $("btnRef").textContent = "Posição";
+  mapS.getContainer().style.cursor = "";
+  setRef(e.latlng.lat, e.latlng.lng, "Posição manual");
+});
+longPress(mapS);
+
+$("vSitrep").addEventListener("click", function(){ setView("sitrep"); });
+$("vRadar").addEventListener("click", function(){ setView("radar"); });
+$("btnTheme").addEventListener("click", function(){
+  theme = theme==="dia" ? "escuro" : "dia";
+  try { localStorage.setItem("sitrep_tema", theme); } catch(e){}
+  aplicaTema();
+});
+$("btnFires").addEventListener("click", function(){
+  onlyFires = !onlyFires;
+  this.setAttribute("aria-pressed", onlyFires?"true":"false");
+  this.textContent = onlyFires ? "Só incêndios" : "Todas";
+  renderIncidents();
+  if (radarReady) drawFires();
+});
+
+/* ---------- chave do ADSBx ---------- */
+function syncKeyUI(){
+  $("btnKey").textContent = adsbKey ? "Chave ✓" : "Chave";
+  $("keyIn").value = adsbKey;
+  $("quotaCalc").textContent = Math.round(AC_MS/1000)+" s";
+  $("quotaHours").textContent = Math.round(10000/(3600000/AC_MS));
+}
+$("btnKey").addEventListener("click", function(){
+  var b = $("keyBar"); b.hidden = !b.hidden;
+  if (!b.hidden) $("keyIn").focus();
+});
+$("keySave").addEventListener("click", function(){
+  adsbKey = $("keyIn").value.trim();
+  try { localStorage.setItem("sitrep_adsbx_key", adsbKey); } catch(e){}
+  adsbCalls = 0; syncKeyUI(); $("keyBar").hidden = true; loadAircraft();
+});
+$("keyClear").addEventListener("click", function(){
+  adsbKey = "";
+  try { localStorage.removeItem("sitrep_adsbx_key"); } catch(e){}
+  adsbCalls = 0; syncKeyUI(); loadAircraft();
+});
+$("btnRefresh").addEventListener("click", refreshAll);
+
+/* ---------- relógio e ciclos ---------- */
+function tickClock(){
+  if (document.hidden) return;
+  var d = new Date();
+  function p(n){ return n<10?"0"+n:String(n); }
+  $("clock").textContent = p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+}
+tickClock(); setInterval(tickClock, 1000);
+
+function refreshAll(){
+  DIAG.incidents.ok = null; DIAG.aircraft.ok = null;
+  renderDiag(); loadIncidents(); loadAircraft(); loadWeather();
+}
+
+var pendingResume = [];
+function schedule(fn, base, delay){
+  (function loop(){
+    var d = (delay ? delay(base) : base) + Math.floor(Math.random()*2000);
+    setTimeout(function(){
+      if (document.hidden){ pendingResume.push(loop); return; }
+      var p; try { p = fn(); } catch(e){ p = null; }
+      (p && p.then ? p : Promise.resolve()).then(loop, loop);
+    }, d);
+  })();
+}
+
+var wakeLock = null;
+function askWake(){
+  if (!navigator.wakeLock || wakeLock) return;
+  navigator.wakeLock.request("screen").then(function(w){
+    wakeLock = w;
+    w.addEventListener("release", function(){ wakeLock = null; });
+  }).catch(function(){});
+}
+document.addEventListener("visibilitychange", function(){
+  if (document.hidden){
+    if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
+    return;
+  }
+  askWake();
+  var q = pendingResume; pendingResume = [];
+  q.forEach(function(loop){ loop(); });
+  refreshAll();
+});
+
+/* ---------- instalação e estado da ligação ---------- */
+if ("serviceWorker" in navigator && location.protocol === "https:"){
+  navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+
+function estadoRede(){
+  var off = !navigator.onLine;
+  $("offbar").hidden = !off;
+  /* sem rede, insistir em pedir só queima bateria */
+  if (!off) refreshAll();
+}
+window.addEventListener("online", estadoRede);
+window.addEventListener("offline", function(){ $("offbar").hidden = false; });
+if (!navigator.onLine) $("offbar").hidden = false;
+
+/* ---------- arranque ---------- */
+try {
+  var v = localStorage.getItem("sitrep_vista");
+  if (v === "radar") view = "radar";
+} catch(e){}
+/* atalho do ecrã inicial pode pedir uma vista específica */
+if (/[?&]vista=radar/.test(location.search)) view = "radar";
+
+syncKeyUI();
+aplicaTema();
+setView(view);
+$("refName").textContent = REF.name+" · "+REF.lat.toFixed(4)+", "+REF.lon.toFixed(4);
+$("rPos").textContent = REF.lat.toFixed(4)+", "+REF.lon.toFixed(4);
+
+refreshAll();
+askWake();
+
+schedule(loadAircraft, AC_MS, function(b){
+  if (adsbFails) return Math.min(adsbFails,6)*20000;
+  if (usingProxy()) return Math.max(b, 45000);
+  return b;
+});
+schedule(loadIncidents, INC_MS, function(b){ return usingProxy() ? Math.max(b,120000) : b; });
+schedule(loadWeather, WX_MS);
+
+if (navigator.geolocation){
+  navigator.geolocation.getCurrentPosition(function(p){
+    setRef(p.coords.latitude, p.coords.longitude, "A tua posição");
+    mapS.setView([p.coords.latitude,p.coords.longitude], 11);
+    if (mapR) mapR.setView([p.coords.latitude,p.coords.longitude], 10);
+  }, function(){}, { timeout:8000 });
+}
+
+})();
+
+</script>
+</body>
+</html>
