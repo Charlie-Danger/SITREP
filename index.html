@@ -454,9 +454,23 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
   </div>
   <button class="btn" id="btnFires" type="button" aria-pressed="true">Só incêndios</button>
   <button class="btn" id="btnRef" type="button" aria-pressed="false">Posição</button>
+  <button class="btn" id="btnCasa" type="button" hidden title="Voltar à posição guardada">Casa</button>
   <button class="btn" id="btnTheme" type="button">Modo dia</button>
   <button class="btn" id="btnKey" type="button">Chave</button>
   <button class="btn" id="btnRefresh" type="button">Atualizar</button>
+</div>
+
+<div class="keybar" id="posBar" hidden>
+  <label>Posição de referência</label>
+  <button class="btn" id="posGps" type="button">A minha posição</button>
+  <button class="btn" id="posCasa" type="button" hidden>Ir para casa</button>
+  <button class="btn" id="posGuardar" type="button">Guardar esta como casa</button>
+  <button class="btn" id="posMapa" type="button">Escolher no mapa</button>
+  <button class="btn" id="posApagar" type="button" hidden>Esquecer casa</button>
+  <p class="keynote" id="posNota">
+    Tudo o que o painel consulta é pedido em função desta posição.
+    Também se muda arrastando o marcador, ou com um toque longo no mapa.
+  </p>
 </div>
 
 <div class="keybar" id="keyBar" hidden>
@@ -583,7 +597,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-19.4";
+var VERSAO = "2026-09-19.6";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -669,6 +683,19 @@ var incidents = [], roads = [], wx = null, acs = [];
 var tracks = {}, drops = [], elevCache = {}, elevBusy = false;
 var fireEpoch = 0, hasMeios = true;
 var adsbKey = "", adsbCalls = 0, adsbStick = null, adsbFails = 0, adsbRL = 0;
+var acUltimaLeitura = 0;     /* quando os dados em mão foram obtidos */
+
+/* Em rede móvel a latência sobe e os pedidos caem a meio. Um timeout
+   fixo de 11 s dá falsos negativos em 3G, e a cadência de 10 s é
+   agressiva de mais quando a ligação mal chega. */
+function qualidadeRede(){
+  var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  var t = c && c.effectiveType;
+  if (t === "slow-2g" || t === "2g") return { timeout:26000, cadencia:30000, nome:t };
+  if (t === "3g")                     return { timeout:18000, cadencia:20000, nome:t };
+  if (c && c.saveData)                return { timeout:14000, cadencia:30000, nome:"poupança" };
+  return { timeout:11000, cadencia:AC_MS, nome:t || "boa" };
+}
 var netHost = {}, netMode = { direct:null, proxy:null };
 var DIAG = { incidents:{ok:null,via:"—",msg:""}, weather:{ok:null,via:"—",msg:""},
              aircraft:{ok:null,via:"—",msg:""} };
@@ -1075,10 +1102,27 @@ function loadAircraft(){
   if (adsbStick) chain.sort(function(a,b){ return (b.n===adsbStick)-(a.n===adsbStick); });
   var errs = [];
 
-  function go(i){
+  var rede = qualidadeRede();
+
+  function go(i, retentativa){
     if (i >= chain.length){
       adsbFails++;
       if (adsbFails >= 2) adsbStick = null;
+      var idade = acUltimaLeitura ? Math.round((Date.now()-acUltimaLeitura)/1000) : null;
+
+      /* Ter dados de há segundos e substituí-los por uma mensagem de erro
+         faz uma rede intermitente parecer avariada. Enquanto a última
+         leitura for recente, mantém-se o que está no ecrã. */
+      if (idade !== null && idade < 90){
+        DIAG.aircraft = { ok:true, via:acSource+" · a repetir",
+          msg:"última leitura há "+idade+" s · "+errs.join(" · ") };
+        $("acNote").textContent = "Leitura falhou — a mostrar posições de há "+idade+
+          " s · nova tentativa em "+Math.min(adsbFails,6)*10+" s";
+        if (view === "radar") $("rSrc").textContent = acSource+" · dados de há "+idade+" s";
+        renderDiag();
+        return;
+      }
+
       DIAG.aircraft = { ok:false, via:"—",
         msg: errs.join(" · ")+" · nova tentativa em "+Math.min(adsbFails,6)*10+" s" };
       showError($("acBody"), "Nenhuma rede ADS-B respondeu.", errs.join("  |  "), "acNote");
@@ -1095,8 +1139,8 @@ function loadAircraft(){
     var h = s.h ? s.h() : null;
     if (s.paid) adsbCalls++;
 
-    return fetchVia(u, 11000, h).then(function(r){
-      adsbStick = s.n; adsbFails = 0;
+    return fetchVia(u, rede.timeout, h).then(function(r){
+      adsbStick = s.n; adsbFails = 0; acUltimaLeitura = Date.now();
       var list = s.f === "opensky" ? fromOpenSky(r.data.states, r.data.time)
                                    : (r.data.ac || r.data.aircraft || []);
       DIAG.aircraft = { ok:true, via:s.n+" / "+r.via,
@@ -1105,12 +1149,19 @@ function loadAircraft(){
       renderDiag();
     }).catch(function(e){
       var m = (e && e.message) ? e.message : "?";
+      var abortou = (e && e.name === "AbortError") || /abort/i.test(m);
       if (/\b429\b/.test(m)) adsbRL = Date.now();
-      errs.push(s.n+": "+m);
+
+      /* um timeout em rede móvel não quer dizer que a fonte está em baixo:
+         dá-se-lhe uma segunda oportunidade antes de saltar para a seguinte */
+      if (abortou && !retentativa){
+        return go(i, true);
+      }
+      errs.push(s.n+": "+(abortou ? "sem resposta a tempo" : m));
       return go(i+1);
     });
   }
-  return go(0);
+  return go(0, false);
 }
 
 function classify(a){
@@ -1440,6 +1491,7 @@ function buildRadar(){
     ringTimer = setTimeout(drawRings, 90);
   });
   mapR.on("contextmenu", function(e){ setRef(e.latlng.lat, e.latlng.lng, "Posição manual"); });
+  mapR.on("click", aoEscolher);
   mapR.on("popupopen", onPopupOpen);
   longPress(mapR);
 
@@ -2118,6 +2170,15 @@ function renderDiag(){
       '<span class="dot '+(DIAG_SAF.ok?"ok":"bad")+'"></span><span class="nm">LSA-SAF</span>'+
       '<span class="via">IPMA · 15 min</span></div><div class="msg">'+esc(DIAG_SAF.msg)+'</div></div>';
   }
+  var rq = qualidadeRede();
+  html += '<div class="dg"><div class="dg-top"><span class="dot '+
+    (rq.cadencia > AC_MS ? "" : "ok")+'"></span>'+
+    '<span class="nm">Ligação</span><span class="via">'+esc(rq.nome)+'</span></div>'+
+    '<div class="msg">ADS-B a cada '+Math.round(rq.cadencia/1000)+' s · espera até '+
+    Math.round(rq.timeout/1000)+' s'+
+    (rq.cadencia > AC_MS ? ' · cadência aliviada para a ligação aguentar' : '')+
+    '</div></div>';
+
   html += '<div class="dg"><div class="dg-top"><span class="dot ok"></span>'+
     '<span class="nm">Versão</span><span class="via">'+esc(VERSAO)+'</span></div>'+
     '<div class="msg">Se este número não mudar depois de uma atualização, '+
@@ -2225,22 +2286,94 @@ function setRef(lat, lon, name){
   loadIncidents(); loadWeather(); loadAircraft();
 }
 
+/* ---------- posição: guardar, voltar, escolher ----------
+   Mudar de posição sem forma de voltar obriga a reencontrar o sítio à
+   mão de cada vez. Casa é a posição guardada; GPS é a real. */
+var casa = null;
+try { casa = JSON.parse(localStorage.getItem("sitrep_casa") || "null"); } catch(e){}
+
+function syncPosUI(){
+  var tem = !!(casa && isFinite(casa.lat));
+  $("btnCasa").hidden = !tem;
+  $("posCasa").hidden = !tem;
+  $("posApagar").hidden = !tem;
+  $("posCasa").textContent = tem ? "Ir para "+(casa.nome || "casa") : "Ir para casa";
+  $("posNota").innerHTML = (tem
+    ? 'Casa guardada em '+casa.lat.toFixed(4)+', '+casa.lon.toFixed(4)+
+      ' ('+esc(casa.nome||"sem nome")+'). '
+    : 'Ainda não há casa guardada. ')+
+    'Tudo o que o painel consulta é pedido em função desta posição. '+
+    'Também se muda arrastando o marcador, ou com um toque longo no mapa.';
+}
+
+function irGps(){
+  if (!navigator.geolocation){
+    $("posNota").textContent = "Este browser não dá acesso à localização.";
+    return;
+  }
+  $("posGps").textContent = "a localizar…";
+  navigator.geolocation.getCurrentPosition(function(p){
+    $("posGps").textContent = "A minha posição";
+    setRef(p.coords.latitude, p.coords.longitude, "A tua posição");
+    mapS.setView([p.coords.latitude, p.coords.longitude], 11);
+    if (mapR) mapR.setView([p.coords.latitude, p.coords.longitude], 10);
+    $("posBar").hidden = true;
+  }, function(err){
+    $("posGps").textContent = "A minha posição";
+    $("posNota").textContent = err && err.code === 1
+      ? "Localização recusada. Em HTTPS pode ser reativada nas permissões do site."
+      : "Não foi possível obter a localização agora.";
+  }, { timeout:10000, enableHighAccuracy:true, maximumAge:30000 });
+}
+
 var pickMode = false;
+function setPick(on){
+  pickMode = on;
+  $("btnRef").setAttribute("aria-pressed", on?"true":"false");
+  $("btnRef").textContent = on ? "Toque no mapa" : "Posição";
+  mapS.getContainer().style.cursor = on ? "crosshair" : "";
+  if (mapR) mapR.getContainer().style.cursor = on ? "crosshair" : "";
+}
+
 $("btnRef").addEventListener("click", function(){
-  pickMode = !pickMode;
-  this.setAttribute("aria-pressed", pickMode?"true":"false");
-  this.textContent = pickMode ? "Clique no mapa" : "Posição";
-  mapS.getContainer().style.cursor = pickMode ? "crosshair" : "";
+  if (pickMode){ setPick(false); return; }
+  var b = $("posBar");
+  b.hidden = !b.hidden;
+  if (!b.hidden) syncPosUI();
 });
-mapS.on("click", function(e){
+$("btnCasa").addEventListener("click", function(){
+  if (casa) setRef(casa.lat, casa.lon, casa.nome || "Casa");
+});
+$("posGps").addEventListener("click", irGps);
+$("posCasa").addEventListener("click", function(){
+  if (casa){ setRef(casa.lat, casa.lon, casa.nome || "Casa"); $("posBar").hidden = true; }
+});
+$("posGuardar").addEventListener("click", function(){
+  var sug = (REF.name || "").replace(/ \(por omissão\)$/, "").replace(/^A tua posição$/, "");
+  var nome = prompt("Nome para esta posição:", sug || "Casa");
+  if (nome === null) return;
+  casa = { lat:REF.lat, lon:REF.lon, nome:(nome.trim() || "Casa") };
+  try { localStorage.setItem("sitrep_casa", JSON.stringify(casa)); } catch(e){}
+  syncPosUI();
+});
+$("posApagar").addEventListener("click", function(){
+  casa = null;
+  try { localStorage.removeItem("sitrep_casa"); } catch(e){}
+  syncPosUI();
+});
+$("posMapa").addEventListener("click", function(){
+  $("posBar").hidden = true;
+  setPick(true);
+});
+
+function aoEscolher(e){
   if (!pickMode) return;
-  pickMode = false;
-  $("btnRef").setAttribute("aria-pressed","false");
-  $("btnRef").textContent = "Posição";
-  mapS.getContainer().style.cursor = "";
+  setPick(false);
   setRef(e.latlng.lat, e.latlng.lng, "Posição manual");
-});
+}
+mapS.on("click", aoEscolher);
 longPress(mapS);
+syncPosUI();
 
 $("vSitrep").addEventListener("click", function(){ setView("sitrep"); });
 $("vRadar").addEventListener("click", function(){ setView("radar"); });
@@ -2358,13 +2491,20 @@ askWake();
 
 schedule(loadAircraft, AC_MS, function(b){
   if (adsbFails) return Math.min(adsbFails,6)*20000;
-  if (usingProxy()) return Math.max(b, 45000);
-  return b;
+  var r = qualidadeRede();
+  if (usingProxy()) return Math.max(r.cadencia, 45000);
+  return r.cadencia;          /* alivia sozinho em 3G ou poupança de dados */
 });
 schedule(loadIncidents, INC_MS, function(b){ return usingProxy() ? Math.max(b,120000) : b; });
 schedule(loadWeather, WX_MS);
 
-if (navigator.geolocation){
+/* Se há casa guardada, é ela que manda: arranca de imediato, sem
+   esperar pelo GPS nem sobrepor-se à escolha. Sem casa, tenta a
+   posição real; se falhar, fica Arganil. */
+if (casa && isFinite(casa.lat)){
+  setRef(casa.lat, casa.lon, casa.nome || "Casa");
+  mapS.setView([casa.lat, casa.lon], 11);
+} else if (navigator.geolocation){
   navigator.geolocation.getCurrentPosition(function(p){
     setRef(p.coords.latitude, p.coords.longitude, "A tua posição");
     mapS.setView([p.coords.latitude,p.coords.longitude], 11);
