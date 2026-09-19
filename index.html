@@ -442,7 +442,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 
 <div class="topbar">
   <div class="brand">
-    <h1>SITREP Arganil</h1>
+    <h1>SITREP</h1>
     <span class="sub" id="refName">—</span>
   </div>
   <span class="clock" id="clock">--:--:--</span>
@@ -579,7 +579,11 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 "use strict";
 
 /* ---------- configuração ---------- */
-var REF = { lat: 40.2167, lon: -8.0500, name: "Arganil" };
+/* Arganil é só o ponto de partida quando não há posição do dispositivo.
+   Tudo o que o painel consulta — ocorrências, vento, ADS-B, cota do
+   terreno — é pedido em função desta posição, por isso funciona em
+   qualquer sítio para onde ela seja movida. */
+var REF = { lat: 40.2167, lon: -8.0500, name: "Arganil (por omissão)" };
 
 var ADSB_RADIUS_NM = 60;
 var RADIUS_KM      = ADSB_RADIUS_NM * 1.852;
@@ -1632,8 +1636,11 @@ function renderIncidents(){
   $("cInc").textContent = String(pool.length);
   if (!pool.length){
     body.innerHTML = '<div class="state">'+
-      (onlyFires ? "Nenhum incêndio rural ativo nos dados recebidos. Usa “Todas” para as restantes."
-                 : "Nenhuma ocorrência ativa nos dados recebidos.")+'</div>';
+      (foraDePortugal(REF.lat, REF.lon)
+        ? "A posição está fora de Portugal. As ocorrências vêm da ANEPC e cobrem apenas o território nacional — "+
+          "o mapa, o vento, os focos de satélite e as aeronaves continuam a funcionar aqui."
+        : (onlyFires ? "Nenhum incêndio rural ativo nos dados recebidos. Usa “Todas” para as restantes."
+                     : "Nenhuma ocorrência ativa nos dados recebidos."))+'</div>';
     return;
   }
 
@@ -2029,11 +2036,53 @@ function aplicaTema(){
   renderAircraft();
 }
 
+/* Portugal continental, em caixa grosseira. As ocorrências da ANEPC
+   e do fogos.pt só cobrem o território nacional; fora dele o resto
+   funciona, mas o painel tem de o dizer em vez de mostrar zero fogos
+   como se fosse boa notícia. */
+var paisRef = null;          /* código ISO, quando o serviço de nomes responde */
+
+function foraDePortugal(lat, lon){
+  /* o país declarado manda: uma caixa retangular não distingue
+     Elvas de Badajoz, que estão a poucos quilómetros uma da outra */
+  if (paisRef) return paisRef !== "PT";
+  var cont = lat>=36.8 && lat<=42.2 && lon>=-9.6 && lon<=-6.1;
+  var mad  = lat>=32.3 && lat<=33.2 && lon>=-17.3 && lon<=-16.2;
+  var az   = lat>=36.8 && lat<=39.8 && lon>=-31.4 && lon<=-24.9;
+  return !(cont || mad || az);
+}
+
+/* Nome do sítio, para o cabeçalho dizer onde está centrado.
+   Serviço gratuito e pensado para o browser; se falhar, ficam as
+   coordenadas, que é informação suficiente. */
+function nomeLocal(lat, lon){
+  fetchVia("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude="+
+    lat.toFixed(4)+"&longitude="+lon.toFixed(4)+"&localityLanguage=pt", 8000)
+    .then(function(r){
+      var d = r.data || {};
+      if (d.countryCode) paisRef = String(d.countryCode).toUpperCase();
+      var loc = d.locality || d.city || (d.localityInfo && d.localityInfo.administrative &&
+                d.localityInfo.administrative[3] && d.localityInfo.administrative[3].name);
+      var reg = d.principalSubdivision || "";
+      if (loc || reg) REF.name = [loc, reg].filter(Boolean).join(", ");
+      pintaRef();
+      renderIncidents();     /* o aviso de território depende disto */
+    }).catch(function(){});
+}
+
+function pintaRef(){
+  var fora = foraDePortugal(REF.lat, REF.lon);
+  $("refName").innerHTML = esc(REF.name)+" · "+REF.lat.toFixed(4)+", "+REF.lon.toFixed(4)+
+    (fora ? ' <span style="color:var(--orange)">· fora de Portugal: sem ocorrências ANEPC</span>' : '');
+  $("rPos").textContent = REF.lat.toFixed(4)+", "+REF.lon.toFixed(4);
+}
+
 function setRef(lat, lon, name){
   REF.lat=lat; REF.lon=lon; REF.name=name||REF.name;
+  paisRef = null;              /* a posição mudou: reavaliar o território */
   refMarker.setLatLng([lat,lon]);
-  $("refName").textContent = REF.name+" · "+lat.toFixed(4)+", "+lon.toFixed(4);
-  $("rPos").textContent = lat.toFixed(4)+", "+lon.toFixed(4);
+  pintaRef();
+  nomeLocal(lat, lon);
   if (radarReady) drawRings();
   /* o PROCIV é consultado por geometria centrada em REF: sem recarregar,
      o raio ficaria no ponto antigo e as distâncias no novo */
@@ -2166,8 +2215,7 @@ if (/[?&]vista=radar/.test(location.search)) view = "radar";
 syncKeyUI();
 aplicaTema();
 setView(view);
-$("refName").textContent = REF.name+" · "+REF.lat.toFixed(4)+", "+REF.lon.toFixed(4);
-$("rPos").textContent = REF.lat.toFixed(4)+", "+REF.lon.toFixed(4);
+pintaRef();
 
 refreshAll();
 askWake();
