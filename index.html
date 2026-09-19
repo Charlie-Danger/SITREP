@@ -583,7 +583,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-19.3";
+var VERSAO = "2026-09-19.4";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -985,24 +985,44 @@ function loadFireWinds(){
     .catch(function(){ /* fica a seta com o vento da referência */ renderVento(); });
 }
 
-/* Seta a sair do incêndio, na direção em que o fogo tende a correr. */
+/* Marca de vento, não seta de navegação.
+   Linguagem de campo vetorial: a haste nasce ténue e tracejada do lado
+   de onde o ar vem, ganha corpo, e termina num chevron aberto. Lê-se
+   como fluxo — uma seta cheia leria como "ir para ali". */
 function setaIcon(paraOnde, vel, local){
-  var comp = 24 + Math.min(16, (vel||0) * 0.7);    /* mais vento, seta maior */
-  var esp  = local ? 3.4 : 2.6;
+  var comp = 26 + Math.min(18, (vel||0) * 0.8);   /* mais vento, mais alcance */
   var cor  = local ? cssVar("--orange") : cssVar("--ink-mute");
-  var H = 96;                                       /* caixa fixa, para rodar bem */
+  var op   = local ? 0.82 : 0.5;
+  var H = 112, c = H/2;
+
+  var yPonta = c - comp;         /* onde o ar vai */
+  var yMeio  = c - comp*0.46;    /* a haste passa a sólida */
+  var yCauda = c + 7;            /* de onde o ar vem, atravessa o marcador */
+  var asa = 5.2, ang = 6.2;      /* chevron aberto, não triângulo */
+
+  function traco(op2, w, dash){
+    return '<g stroke="'+cor+'" stroke-width="'+w+'" stroke-linecap="round" '+
+           'fill="none" opacity="'+op2+'"'+(dash?' stroke-dasharray="'+dash+'"':'')+'>';
+  }
+
   return L.divIcon({
     className:"seta-vento",
     html:'<svg width="'+H+'" height="'+H+'" viewBox="0 0 '+H+' '+H+'" '+
-         'style="transform:rotate('+paraOnde.toFixed(1)+'deg)">'+
-         '<g stroke="#0C0A09" stroke-width="'+(esp+2.4)+'" stroke-linecap="round" fill="none">'+
-           '<line x1="'+(H/2)+'" y1="'+(H/2-6)+'" x2="'+(H/2)+'" y2="'+(H/2-comp)+'"/></g>'+
-         '<g stroke="'+cor+'" stroke-width="'+esp+'" stroke-linecap="round" fill="none">'+
-           '<line x1="'+(H/2)+'" y1="'+(H/2-6)+'" x2="'+(H/2)+'" y2="'+(H/2-comp)+'"/></g>'+
-         '<polygon points="'+(H/2)+','+(H/2-comp-7)+' '+(H/2-5.5)+','+(H/2-comp+4)+' '+
-             (H/2+5.5)+','+(H/2-comp+4)+'" fill="'+cor+'" stroke="#0C0A09" stroke-width="1.2"/>'+
+         'style="transform:rotate('+paraOnde.toFixed(1)+'deg);opacity:'+op+'">'+
+         /* halo ténue, para se ver sobre satélite claro ou escuro */
+         '<g stroke="#0C0A09" stroke-width="3.6" stroke-linecap="round" fill="none" opacity=".55">'+
+           '<line x1="'+c+'" y1="'+yMeio+'" x2="'+c+'" y2="'+yPonta+'"/>'+
+           '<path d="M'+(c-asa)+','+(yPonta+ang)+' L'+c+','+yPonta+' L'+(c+asa)+','+(yPonta+ang)+'"/>'+
+         '</g>'+
+         /* cauda: por onde o ar chegou */
+         traco(0.42, 1.3, "2,3")+
+           '<line x1="'+c+'" y1="'+yCauda+'" x2="'+c+'" y2="'+yMeio+'"/></g>'+
+         /* haste e chevron */
+         traco(1, 1.7)+'<line x1="'+c+'" y1="'+yMeio+'" x2="'+c+'" y2="'+yPonta+'"/></g>'+
+         traco(1, 1.9)+
+           '<path d="M'+(c-asa)+','+(yPonta+ang)+' L'+c+','+yPonta+' L'+(c+asa)+','+(yPonta+ang)+'"/></g>'+
          '</svg>',
-    iconSize:[H,H], iconAnchor:[H/2,H/2]
+    iconSize:[H,H], iconAnchor:[c,c]
   });
 }
 
