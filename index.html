@@ -578,6 +578,11 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 (function(){
 "use strict";
 
+/* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
+   diagnóstico, para se saber de relance se a atualização chegou — a app
+   instalada guarda cópia e pode continuar a servir a anterior. */
+var VERSAO = "2026-09-19.2";
+
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
    Tudo o que o painel consulta — ocorrências, vento, ADS-B, cota do
@@ -1122,9 +1127,19 @@ function pushTracks(list){
   });
 }
 
+/* "Incêndio" em sentido estrito: naturezas 31xx (rurais). O PROCIV
+   traz tudo — despistes, quedas de árvore, roturas de água — e tratar
+   qualquer ocorrência como incêndio produz avisos falsos. */
+function ehIncendio(i){
+  var c = String(i.naturezaCode || "");
+  if (c) return c.indexOf("31") === 0;
+  if (typeof i.isFire === "boolean") return i.isFire;
+  return /inc[êe]ndio|mato|povoamento|agr[íi]cola/i.test(i.natureza || "");
+}
+
 function nearbyFires(){
   return incidents.filter(function(f){
-    return hav(REF.lat, REF.lon, f.lat, f.lng) < RADIUS_KM + 30;
+    return ehIncendio(f) && hav(REF.lat, REF.lon, f.lat, f.lng) < RADIUS_KM + 30;
   });
 }
 
@@ -1425,8 +1440,7 @@ function drawFires(){
   gFiresR.clearLayers();
   var col = cssVar("--orange");
   incidents.forEach(function(f){
-    var c = String(f.naturezaCode||"");
-    if (c && c.indexOf("31") !== 0) return;
+    if (!ehIncendio(f)) return;
     L.circleMarker([f.lat,f.lng], { radius:8, color:col, weight:1.4,
       fillColor:col, fillOpacity:0.16 })
       .bindPopup('<b>'+esc(f.freguesia||f.concelho||"Ocorrência")+'</b><br>'+esc(f.status||""))
@@ -1626,12 +1640,7 @@ function renderIncidents(){
     body.innerHTML = '<div class="state">A carregar ocorrências…</div>'; return;
   }
 
-  var pool = onlyFires ? incidents.filter(function(i){
-    var c = String(i.naturezaCode||"");
-    if (c) return c.indexOf("31")===0;
-    if (typeof i.isFire === "boolean") return i.isFire;
-    return /inc[êe]ndio|mato|povoamento|agr[íi]cola/i.test(i.natureza||"");
-  }) : incidents;
+  var pool = onlyFires ? incidents.filter(ehIncendio) : incidents;
 
   $("cInc").textContent = String(pool.length);
   if (!pool.length){
@@ -1723,11 +1732,19 @@ function renderRoads(){
     return;
   }
 
+  /* só incêndios contam, e nunca a própria ocorrência: as vias vêm da
+     mesma lista do PROCIV, por isso sem este filtro cada uma encontrava-se
+     a si mesma e dava sempre 0,0 km */
+  var fogos = incidents.filter(ehIncendio);
+
   var lista = roads.map(function(i){
     var nf = Infinity;
-    incidents.forEach(function(f){
-      var k = hav(i.lat,i.lng,f.lat,f.lng); if (k<nf) nf=k;
-    });
+    for (var k=0; k<fogos.length; k++){
+      var f = fogos[k];
+      if (f.numero && i.numero && f.numero === i.numero) continue;
+      var d = hav(i.lat, i.lng, f.lat, f.lng);
+      if (d < nf) nf = d;
+    }
     return { i:i, dist:hav(REF.lat,REF.lon,i.lat,i.lng),
              brg:brgTo(REF.lat,REF.lon,i.lat,i.lng), nf:nf };
   }).sort(function(a,b){ return a.dist-b.dist; });
@@ -1987,6 +2004,11 @@ function renderDiag(){
       '<span class="dot '+(DIAG_SAF.ok?"ok":"bad")+'"></span><span class="nm">LSA-SAF</span>'+
       '<span class="via">IPMA · 15 min</span></div><div class="msg">'+esc(DIAG_SAF.msg)+'</div></div>';
   }
+  html += '<div class="dg"><div class="dg-top"><span class="dot ok"></span>'+
+    '<span class="nm">Versão</span><span class="via">'+esc(VERSAO)+'</span></div>'+
+    '<div class="msg">Se este número não mudar depois de uma atualização, '+
+    'o dispositivo ainda está a servir a cópia guardada.</div></div>';
+
   if (location.protocol === "file:"){
     html += '<div class="dg bad"><div class="dg-top"><span class="dot bad"></span>'+
       '<span class="nm">Origem</span><span class="via">file://</span></div>'+
