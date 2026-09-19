@@ -597,7 +597,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-19.6";
+var VERSAO = "2026-09-19.7";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1358,6 +1358,21 @@ var lBaDay  = wms("modis.ba.poly.today",  { opacity:0.6 });
 var lBaWk   = wms("modis.ba.poly.week",   { opacity:0.55 }).addTo(mapS);
 var lBaSea  = wms("modis.ba.poly.season", { opacity:0.45 });
 
+/* Referência sobre o satélite: a imagem não tem nomes nem estradas, e
+   sem topónimos não se localiza um incêndio relativamente a uma aldeia.
+   Pane próprio, acima da imagem e abaixo dos dados. */
+mapS.createPane("ref");
+mapS.getPane("ref").style.zIndex = 250;
+mapS.getPane("ref").style.pointerEvents = "none";
+
+var sNomes = L.tileLayer(ESRI+"Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+  { maxZoom:18, pane:"ref", opacity:0.95, attribution:"&copy; Esri" });
+var sEstradas = L.tileLayer(ESRI+"Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+  { maxZoom:18, pane:"ref", opacity:0.8, attribution:"&copy; Esri" });
+
+sNomes.addTo(mapS);
+sEstradas.addTo(mapS);
+
 var gIncS = L.layerGroup().addTo(mapS);
 var gVentoS = L.layerGroup().addTo(mapS);
 var gRoadS = L.layerGroup().addTo(mapS);
@@ -1367,7 +1382,8 @@ var gDropS = L.layerGroup().addTo(mapS);
 
 var ctlS = L.control.layers(
   { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM },
-  { "Ocorrências":gIncS, "Setas de propagação":gVentoS,
+  { "Nomes de povoação":sNomes, "Estradas":sEstradas,
+    "Ocorrências":gIncS, "Setas de propagação":gVentoS,
     "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
     "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
     "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
@@ -1375,6 +1391,16 @@ var ctlS = L.control.layers(
     "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea },
   { collapsed:true }
 ).addTo(mapS);
+
+/* O topográfico e o OSM já trazem nomes e estradas desenhados: manter a
+   camada de referência por cima duplicaria os rótulos. */
+mapS.on("baselayerchange", function(e){
+  var precisa = (e.layer === sSat);
+  [sNomes, sEstradas].forEach(function(l){
+    if (precisa && !mapS.hasLayer(l)) mapS.addLayer(l);
+    if (!precisa && mapS.hasLayer(l)) mapS.removeLayer(l);
+  });
+});
 
 var refMarker = L.marker([REF.lat,REF.lon], {
   icon:L.divIcon({ className:"", html:'<div class="ref-icon"></div>',
