@@ -307,6 +307,8 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
         font-variant-numeric:tabular-nums}
 .ba-brk{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mute);
         font-variant-numeric:tabular-nums}
+.res.frp{color:var(--ac-fire)}
+.res.frp:empty{display:none}
 .warn{display:block;margin-top:8px;padding:6px 9px;background:rgba(232,68,42,.11);
       border-left:2px solid var(--red);font-family:var(--f-cond);font-size:13px;
       font-weight:600;letter-spacing:.04em;color:var(--red)}
@@ -645,7 +647,9 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
     Risco e avisos: IPMA, API aberta — RCM (escala 1 a 5, por concelho) e avisos meteorologicos por distrito. O risco e previsao de perigo, nao deteccao: diz se hoje e dia de estar atento, mesmo sem fogo nenhum.<br>
   Meteorologia: Open-Meteo. O painel mostra o vento na tua posição; as setas no mapa usam o vento pedido em cada incêndio, que a 30 km pode ser de outro quadrante. Seta laranja = vento medido ali; seta cinzenta = sem leitura própria, a usar o da tua posição. Vento a 10 m, não corrigido para orografia — em vale encaixado a direção real pode divergir muito.<br>
     Focos e área ardida: EFFIS/Copernicus — ~2 passagens/dia; a área ardida MODIS só deteta acima de ~40 ha.<br>
-    Potência radiativa e risco: LSA-SAF/IPMA (MSG/SEVIRI) — 15 em 15 min, pixel de ~3 km.<br>
+    Potência radiativa e risco: LSA-SAF/IPMA (MSG/SEVIRI) — 15 em 15 min, pixel de ~3 km; sonda adicional
+    ao produto MTG-FCI, mais fino, ativa-se sozinha se o serviço a publicar. O número de FRP no cartão de
+    cada incêndio é uma leitura pontual best-effort — pode faltar sem que isso seja avaria.<br>
     Aeronaves: redes ADS-B comunitárias — só quem transmite e é recebido; cobertura em vale é fraca.<br>
     Descargas: inferidas, não reportadas. Erro esperado na ordem das dezenas de metros — uma descarga
     isolada não é de confiança, o sinal está no padrão repetido.<br>
@@ -717,7 +721,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.10";
+var VERSAO = "2026-09-20.14";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -737,6 +741,19 @@ var GEOID_N        = 54;
 var DROP_AGL_MAX   = 180;
 var DROP_PULLUP    = 90;
 var NEAR_FIRE_KM   = 8;
+
+/* Lacunas na amostragem. O detetor de descargas comparava pontos
+   adjacentes no array assumindo que eram adjacentes no tempo. Com
+   amostragem de 10 s a aproximação passa; com um apagão de 70 s
+   parte-se em dois sentidos: a descarga que cabe dentro do buraco
+   nunca aparece, e a que cabe em cima da borda é marcada no último
+   ponto antes do apagão — a quilómetros de onde caiu a água.
+   Um ponto ausente é honesto; uma marca confiante e errada não é. */
+var GAP_FIRME_S    = 25;   /* acima disto a vizinhança deixa de ser firme */
+var GAP_LACUNA_S   = 40;   /* acima disto a lacuna vale registo próprio */
+var GS_PRESUMIDA   = 90;   /* kt, quando a velocidade não vem na trama */
+var AC_PAR         = 2;    /* redes ADS-B lançadas em paralelo */
+var AC_GRACA_MS    = 1500; /* espera pela segunda rede depois da primeira */
 var FT_M           = 0.3048;
 var NM_M           = 1852;
 
@@ -765,8 +782,23 @@ var ADSB = [
    em HTTPS. Os proxies públicos abaixo são recurso: caem com frequência
    e são partilhados por meio mundo. Um Worker próprio resolve de vez —
    ver o worker.js que acompanha o projeto. */
-var proxyProprio = "";
-try { proxyProprio = localStorage.getItem("sitrep_proxy") || ""; } catch(e){}
+/* Causa-raiz do "ADS-B falha constantemente": este endereço vivia só
+   no localStorage, por aparelho. Um telemóvel de família, um browser
+   novo, ou dados limpos, nascia sem saber que o Worker existe e caía
+   direto nos proxies públicos — os mesmos que falham com frequência.
+   O ponto do projeto era partilhar sem cada pessoa configurar nada;
+   a peça que precisa de configuração estava a anular esse ponto.
+   Por isso há agora um por omissão, já publicado — o Worker deste
+   projeto. Continua a poder ser substituído no botão Chave, por quem
+   publicar o seu próprio (ver worker.js); um campo vazio guardado
+   volta a este, nunca desliga o proxy — para isso bastaria editar o
+   ficheiro localmente. */
+var PROXY_PADRAO = "https://sitrep-proxy.pinto-carlosandre.workers.dev";
+var proxyProprio = PROXY_PADRAO;
+try {
+  var proxyGuardado = localStorage.getItem("sitrep_proxy");
+  if (proxyGuardado) proxyProprio = proxyGuardado;
+} catch(e){}
 
 var PROXIES_PUB = [
   { name:"allorigins", wrap:function(u){ return "https://api.allorigins.win/raw?url="+encodeURIComponent(u); } },
@@ -816,7 +848,7 @@ var view = "sitrep";
 var theme = "escuro";
 var onlyFires = true;
 var incidents = [], roads = [], wx = null, acs = [];
-var tracks = {}, drops = [], elevCache = {}, elevBusy = false;
+var tracks = {}, drops = [], lacunas = [], elevCache = {}, elevBusy = false;
 var fireEpoch = 0, hasMeios = true;
 var adsbKey = "", adsbCalls = 0, adsbStick = null, adsbFails = 0, adsbRL = 0;
 var acUltimaLeitura = 0;     /* quando os dados em mão foram obtidos */
@@ -929,12 +961,17 @@ function fetchVia(url, ms, headers){
     var i = 0;
     /* Percorrer três proxies com timeout cheio somava mais de trinta
        segundos antes de desistir. Cada um leva metade do tempo: se não
-       responder depressa, não vale a pena esperar por ele. */
+       responder depressa, não vale a pena esperar por ele.
+       O próprio é exceção: não é partilhado por meio mundo, e cortá-lo
+       ao mesmo prazo empurrava para um público pior sempre que a fonte
+       original (não o Worker) demorasse um pouco mais — o Worker tem
+       12 s de orçamento próprio, faz sentido deixá-lo usá-los. */
     var toP = Math.max(4000, Math.round(to * 0.55));
     function next(){
       if (i >= order.length){ netMode.proxy = null; throw new Error("proxies indisponíveis"); }
       var p = order[i++];
-      return fetchJSON(p.wrap(url), toP)
+      var tp = (p.name === "próprio") ? Math.max(toP, Math.min(to, 9000)) : toP;
+      return fetchJSON(p.wrap(url), tp)
         .then(function(d){ netMode.proxy = p.name; return { data:d, via:p.name }; })
         .catch(next);
     }
@@ -1425,84 +1462,113 @@ function loadAircraft(){
   var rede = qualidadeRede();
 
   /* ------------------------------------------------------------
-     Corrida com lançamento escalonado (hedged request).
-     A cascata sequencial somava a espera de cada fonte antes de
-     experimentar a seguinte. Aqui lança-se a preferida e, se ela
-     não responder dentro de HEDGE, lança-se a seguinte em paralelo
-     — ganha a que chegar primeiro. Se a preferida for rápida, as
-     outras nunca chegam a ser pedidas, por isso não há pedidos a
-     mais no caso normal.
+     Duas redes em paralelo desde o instante zero.
+     A versão anterior lançava uma e só pedia a segunda DEPOIS de a
+     primeira responder — exatamente o caso em que a segunda não faz
+     falta. Quando a primeira falhava, custava mais HEDGE segundos
+     antes de haver sequer um pedido alternativo, e uma sequência de
+     falhas abria buracos de um minuto no histórico. Sem histórico
+     contínuo o detetor de descargas fica cego: um ciclo inteiro de
+     largada cabe dentro do buraco.
+     As redes são independentes nos recetores — falharem as duas na
+     mesma janela é muito mais raro do que falhar uma. Não são
+     independentes no caminho: se o proxy ou o 4G caírem, caem ambas,
+     e contra isso o paralelismo nada pode.
+     Bónus não acessório: cada rede só conhece o que os seus recetores
+     apanham. A união vê mais aeronaves do que qualquer uma sozinha.
      ------------------------------------------------------------ */
   var HEDGE = rede.nome === "boa" || rede.nome === "4g" ? 2200 : 4000;
 
   return new Promise(function(resolve, reject){
-    var ganhou = false, lancadas = 0, falhadas = 0, timers = [];
+    var t0 = Date.now();
+    var lancadas = 0, abertas = 0, falhadas = 0;
+    var bons = [], nomes = [], timers = [], fechado = false;
 
     function limpar(){ timers.forEach(clearTimeout); timers = []; }
 
+    function fechar(){
+      if (fechado || !bons.length) return;
+      fechado = true; limpar();
+      tempos["ADS-B"] = Date.now() - t0;
+      adsbStick = bons[0].nome; adsbFails = 0; acUltimaLeitura = Date.now();
+
+      var lista = bons.length === 1 ? bons[0].list
+                                    : unirAc(bons.map(function(b){ return b.list; }));
+      var fonte = nomes.join(" + ");
+      var extra = bons.length > 1 ? lista.length - bons[0].list.length : 0;
+
+      DIAG.aircraft = { ok:true, via:fonte+" / "+bons[0].via,
+        msg:(adsbKey ? adsbCalls+" pedidos pagos nesta sessão · " : "")+
+            (bons.length > 1
+              ? "união de "+bons.length+" redes"+(extra>0 ? " · "+extra+" contacto(s) só na segunda" : "")
+              : (falhadas ? falhadas+" fonte(s) em falha · uma respondeu" : "rede única"))+
+            (errs.length ? " · "+errs.join(" · ") : "") };
+      /* o formato só interessa para saber se há tipo de aeronave: se
+         alguma das redes for readsb, há; só com OpenSky, não há */
+      var fmt = bons.some(function(b){ return b.fmt === "readsb"; }) ? "readsb" : "opensky";
+      ingestAircraft(lista, fonte, bons[0].via, fmt);
+      renderDiag();
+      resolve();
+    }
+
+    function liquidar(){
+      /* todas as lançadas já responderam ou falharam */
+      if (abertas > 0 || fechado) return;
+      if (bons.length) return fechar();
+      if (lancadas < chain.length) return lancar();
+      tempos["ADS-B"] = Date.now() - t0;
+      limpar(); reject();
+    }
+
     function lancar(){
-      if (ganhou || lancadas >= chain.length) return;
+      if (fechado || lancadas >= chain.length) return;
       var s = chain[lancadas++];
       var u = s.u(REF.lat.toFixed(4), REF.lon.toFixed(4), ADSB_RADIUS_NM);
       var h = s.h ? s.h() : null;
       if (s.paid) adsbCalls++;
+      abertas++;
 
-      cronometrar("ADS-B", fetchVia(u, rede.timeout, h))
+      fetchVia(u, rede.timeout, h)
         .then(function(r){
-          if (ganhou) return;                /* outra chegou primeiro */
-          ganhou = true; limpar();
-          adsbStick = s.n; adsbFails = 0; acUltimaLeitura = Date.now();
+          abertas--;
+          if (fechado) return;
           var list = s.f === "opensky" ? fromOpenSky(r.data.states, r.data.time)
                                        : (r.data.ac || r.data.aircraft || []);
-          DIAG.aircraft = { ok:true, via:s.n+" / "+r.via,
-            msg:(s.paid ? adsbCalls+" pedidos pagos nesta sessão · " : "")+
-                (lancadas > 1 ? lancadas+" fontes em corrida" : "resposta à primeira") };
-          ingestAircraft(list, s.n, r.via, s.f);
-          renderDiag();
-          resolve();
-          /* Com proxy próprio há folga para consultar uma segunda rede e
-             juntar o que ela vê a mais. Cada rede só conhece o que os
-             seus recetores apanham; a união melhora a cobertura real. */
-          if (proxyProprio) complementar(s, list);
+          bons.push({ nome:s.n, via:r.via, list:list, fmt:s.f });
+          nomes.push(s.n);
+          /* A primeira a chegar abre uma janela curta para a irmã. Findo
+             esse prazo fecha-se com o que houver: atrasar a leitura para
+             esperar por uma união é trocar atualidade por completude, e
+             num painel de emergência a atualidade ganha. */
+          if (bons.length === 1 && abertas > 0){
+            timers.push(setTimeout(fechar, AC_GRACA_MS));
+          } else {
+            fechar();
+          }
+          liquidar();
         })
         .catch(function(e){
+          abertas--;
           var m = (e && e.message) ? e.message : "?";
           if (/\b429\b/.test(m)) adsbRL = Date.now();
           errs.push(s.n+": "+((e && e.name === "AbortError") ? "sem resposta a tempo" : m));
           falhadas++;
-          if (ganhou) return;
-          lancar();                          /* falhou: a seguinte já */
-          if (falhadas >= chain.length && !ganhou){ limpar(); reject(); }
+          if (fechado) return;
+          /* só se procura alternativa enquanto não houver nada em mão:
+             com uma leitura boa, lançar mais pedidos é gastar por nada */
+          if (!bons.length) lancar();
+          liquidar();
         });
-
-      /* a seguinte entra em paralelo se esta demorar */
-      if (lancadas < chain.length){
-        timers.push(setTimeout(function(){ if (!ganhou) lancar(); }, HEDGE));
-      }
     }
 
-    lancar();
-  }).catch(function(){ semRede(); });
+    /* AC_PAR pedidos de partida, não um com espera escalonada */
+    for (var i = 0; i < AC_PAR && i < chain.length; i++) lancar();
 
-  /* Segunda rede, em background, só para acrescentar o que faltou. */
-  function complementar(usada, base){
-    var outra = chain.filter(function(s){
-      return s.n !== usada.n && s.f === "readsb" && !s.paid;
-    })[0];
-    if (!outra) return;
-    var u = outra.u(REF.lat.toFixed(4), REF.lon.toFixed(4), ADSB_RADIUS_NM);
-    fetchVia(u, rede.timeout, null).then(function(r){
-      var lista2 = r.data.ac || r.data.aircraft || [];
-      if (!lista2.length) return;
-      var unido = unirAc([base, lista2]);
-      var extra = unido.length - base.length;
-      if (extra <= 0) return;                  /* nada de novo, não redesenhar */
-      DIAG.aircraft.via = usada.n+" + "+outra.n;
-      DIAG.aircraft.msg = "união de duas redes · "+extra+" contacto(s) só na segunda";
-      ingestAircraft(unido, usada.n+" + "+outra.n, r.via, "readsb");
-      renderDiag();
-    }).catch(function(){ /* a união é bónus: falhar não estraga nada */ });
-  }
+    /* rede lenta: se ao fim de HEDGE ainda não fechou, alarga a frente */
+    timers.push(setTimeout(function(){
+      if (!fechado && !bons.length) lancar();
+    }, HEDGE));
+  }).catch(function(){ semRede(); });
 
   function semRede(){
       adsbFails++;
@@ -1515,8 +1581,13 @@ function loadAircraft(){
       if (idade !== null && idade < 90){
         DIAG.aircraft = { ok:true, via:acSource+" · a repetir",
           msg:"última leitura há "+idade+" s · "+errs.join(" · ") };
+        /* Acima de GAP_FIRME_S a lacuna deixa de ser cosmética: é tempo
+           em que uma largada pode ter acontecido sem ser vista. Dizê-lo
+           aqui evita que a ausência de marcas se leia como ausência de
+           descargas. */
         $("acNote").textContent = "Leitura falhou — a mostrar posições de há "+idade+
-          " s · nova tentativa em "+Math.min(adsbFails,6)*10+" s";
+          " s · nova tentativa em "+Math.min(adsbFails,6)*10+" s"+
+          (idade > GAP_FIRME_S ? " · lacuna no histórico: descargas neste intervalo não são detetáveis" : "");
         if (view === "radar") $("rSrc").textContent = acSource+" · dados de há "+idade+" s";
         renderDiag();
         return;
@@ -1665,7 +1736,7 @@ function pushTracks(list){
     tracks[hex].fire = x.fire; tracks[hex].type = x.label;
     var last = tracks[hex].pts[tracks[hex].pts.length-1];
     if (last && now-last.t < 8000) return;
-    tracks[hex].pts.push({ t:now, lat:a.lat, lon:a.lon,
+    tracks[hex].pts.push({ t:now, lat:a.lat, lon:a.lon, gs:parseFloat(a.gs),
       altBaro:isFinite(ab)?ab:NaN, altGeom:isFinite(ag)?ag:NaN, agl:null });
   });
   var cut = now - TRACK_MAX_MIN*60000;
@@ -1691,8 +1762,60 @@ function nearbyFires(){
   });
 }
 
+/* Distância percorrida num intervalo sem observação: o raio dentro do
+   qual a posição verdadeira pode estar. Sem velocidade na trama usa-se
+   uma de cruzeiro típica de meio aéreo — subestimar seria pior. */
+function alcanceKm(gsKt, dtS){
+  var g = (isFinite(gsKt) && gsKt > 5) ? gsKt : GS_PRESUMIDA;
+  return g * 1.852 * dtS / 3600;
+}
+
+/* Distância ao incêndio mais próximo, memorizada no ponto e só
+   recalculada quando a lista de ocorrências muda. */
+function distFogo(p, fl){
+  if (p.nfEpoch !== fireEpoch){
+    var n0 = Infinity;
+    for (var q=0; q<fl.length; q++){
+      var dq = hav(p.lat, p.lon, fl[q].lat, fl[q].lng);
+      if (dq < n0) n0 = dq;
+    }
+    p.nf = n0; p.nfEpoch = fireEpoch;
+  }
+  return p.nf;
+}
+
+/* Fração do tempo observado que está sob amostragem contínua. Sem este
+   número, "nenhuma descarga" é uma frase ininterpretável: não se
+   distingue um céu calmo de um recetor em baixo. */
+function cobertura(tk){
+  var pts = tk.pts;
+  if (!pts || pts.length < 2) return null;
+  var span = pts[pts.length-1].t - pts[0].t;
+  if (span <= 0) return null;
+  var bom = 0;
+  for (var i=1; i<pts.length; i++){
+    var dt = pts[i].t - pts[i-1].t;
+    if (dt <= GAP_FIRME_S*1000) bom += dt;
+  }
+  return bom/span;
+}
+
+function coberturaCombate(){
+  var span = 0, bom = 0;
+  Object.keys(tracks).forEach(function(h){
+    var tk = tracks[h], pts = tk.pts;
+    if (!tk.fire || !pts || pts.length < 2) return;
+    span += pts[pts.length-1].t - pts[0].t;
+    for (var i=1; i<pts.length; i++){
+      var dt = pts[i].t - pts[i-1].t;
+      if (dt <= GAP_FIRME_S*1000) bom += dt;
+    }
+  });
+  return span > 0 ? bom/span : null;
+}
+
 function detectDrops(){
-  var out = [], fl = nearbyFires();
+  var out = [], lac = [], fl = nearbyFires();
   Object.keys(tracks).forEach(function(hex){
     var tk = tracks[hex], pts = tk.pts;
     pts.forEach(function(p){ if (p.agl === null) p.agl = computeAGL(p); });
@@ -1704,28 +1827,55 @@ function detectDrops(){
       if (a.agl === null || b.agl === null) continue;
       if (!(p.agl <= a.agl && p.agl <= b.agl)) continue;
 
-      var rise = 0;
-      for (var j=i+1; j<pts.length && pts[j].t-p.t < 180000; j++)
+      /* Vizinhança no tempo, não no array. Um mínimo ladeado por 70 s
+         de silêncio não é um mínimo observado — é o último ponto antes
+         do silêncio, e a largada pode ter sido em qualquer sítio do
+         trecho que falta. */
+      var dtA = (p.t - a.t)/1000, dtB = (b.t - p.t)/1000;
+      var gap = Math.max(dtA, dtB);
+      var firme = gap <= GAP_FIRME_S;
+      var errKm = firme ? 0 : alcanceKm(p.gs, gap);
+
+      var rise = 0, riseGap = false, prevT = p.t;
+      for (var j=i+1; j<pts.length && pts[j].t-p.t < 180000; j++){
+        if (pts[j].t - prevT > GAP_FIRME_S*1000) riseGap = true;
+        prevT = pts[j].t;
         if (pts[j].agl !== null) rise = Math.max(rise, pts[j].agl - p.agl);
+      }
       if (rise < DROP_PULLUP) continue;
 
-      /* guardado no ponto: só reavaliado quando a lista de fogos muda */
-      if (p.nfEpoch !== fireEpoch){
-        var n0 = Infinity;
-        for (var q=0; q<fl.length; q++){
-          var dq = hav(p.lat, p.lon, fl[q].lat, fl[q].lng);
-          if (dq < n0) n0 = dq;
-        }
-        p.nf = n0; p.nfEpoch = fireEpoch;
-      }
+      var nf = distFogo(p, fl);
       out.push({ lat:p.lat, lon:p.lon, t:p.t, hex:hex, id:tk.id, type:tk.type,
         agl:Math.round(p.agl), rise:Math.round(rise),
-        nearKm: isFinite(p.nf) ? p.nf : null,
-        confident: isFinite(p.nf) && p.nf <= NEAR_FIRE_KM,
+        nearKm: isFinite(nf) ? nf : null,
+        confident: isFinite(nf) && nf <= NEAR_FIRE_KM,
+        firme: firme, gapS: Math.round(gap), errKm: errKm, riseGap: riseGap,
         method: p.method || "?" });
     }
+
+    /* Lacunas sobre ocorrência ativa: o que não foi visto, dito como
+       tal. Uma aeronave de combate que desaparece baixo junto a um fogo
+       e reaparece bem mais alto quase de certeza largou água no meio —
+       mas não se sabe onde, e inventar um ponto seria pior que calar. */
+    if (!tk.fire) return;
+    for (var k=1; k<pts.length; k++){
+      var u = pts[k-1], v = pts[k], dt = (v.t - u.t)/1000;
+      if (dt <= GAP_LACUNA_S) continue;
+      var perto = Math.min(distFogo(u, fl), distFogo(v, fl));
+      if (!isFinite(perto) || perto > NEAR_FIRE_KM) continue;
+      var subiu = (u.agl !== null && v.agl !== null) ? v.agl - u.agl : null;
+      var baixo = u.agl !== null && u.agl < DROP_AGL_MAX*2;
+      if (!baixo && !(subiu !== null && subiu >= DROP_PULLUP*0.6)) continue;
+      lac.push({ lat:u.lat, lon:u.lon, latB:v.lat, lonB:v.lon, t:u.t,
+        hex:hex, id:tk.id, type:tk.type, gapS:Math.round(dt),
+        raioKm: alcanceKm(isFinite(u.gs)?u.gs:v.gs, dt),
+        aglA: u.agl===null?null:Math.round(u.agl),
+        aglB: v.agl===null?null:Math.round(v.agl),
+        subiu: subiu===null?null:Math.round(subiu), nearKm: perto });
+    }
   });
-  drops = out.sort(function(a,b){ return a.t-b.t; });
+  drops   = out.sort(function(a,b){ return a.t-b.t; });
+  lacunas = lac.sort(function(a,b){ return a.t-b.t; });
 }
 
 /* ============================================================
@@ -1809,8 +1959,10 @@ refMarker.on("dragend", function(){
 });
 
 /* LSA-SAF: lê o GetCapabilities e regista o que lá estiver —
-   imune a mudanças de nome no serviço do IPMA */
-function discoverADAGUC(ds, prefix, opts){
+   imune a mudanças de nome no serviço do IPMA. onLayer, se dado, recebe
+   (base, nome, tempo) de cada camada registada — serve para guardar a
+   camada de FRP para consultas pontuais mais tarde. */
+function discoverADAGUC(ds, prefix, opts, onLayer){
   var base = ADAGUC+"?dataset="+encodeURIComponent(ds)+"&";
   return fetch(base+"service=WMS&request=GetCapabilities&version=1.3.0", {cache:"no-store"})
     .then(function(r){ if (!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
@@ -1843,22 +1995,76 @@ function discoverADAGUC(ds, prefix, opts){
           version:"1.3.0", opacity:0.75, attribution:"LSA-SAF / IPMA (CC BY 4.0)" }, opts||{});
         if (t) cfg.time = t;
         ctlS.addOverlay(L.tileLayer.wms(base, cfg), prefix+" "+title);
+        if (onLayer) onLayer(base, name, t);
         added++;
       }
       if (!added) throw new Error("sem camadas");
       return added;
     });
 }
+
+/* MSG-FRP é o produto documentado e em produção; guarda-se para as
+   consultas pontuais do cartão de ocorrências (frpNear, adiante).
+   MTG-FRP é o produto que a LSA-SAF lançou em demonstração com o novo
+   satélite Meteosat de terceira geração — mais frequente, pixel mais
+   fino. É provavelmente a fonte por trás do "perímetro" do fogos.pt,
+   mas não há garantia de que o IPMA o sirva já sob este nome de
+   dataset: a tentativa é especulativa e falha em silêncio, sem entrar
+   na contagem de avarias, exatamente como aconteceria se o serviço um
+   dia mudasse o nome de MSG-FRP. Se aparecer no seletor de camadas
+   "FRP MTG · …", está a funcionar; se não aparecer, não está — e o
+   painel continua completo na mesma com a MSG. */
+var FRP_MSG = null, FRP_MTG = null, FRP_Q = null;
 Promise.all([
-  discoverADAGUC("MSG-FRP","FRP",{opacity:0.85}).then(function(n){ return "FRP: "+n; })
+  discoverADAGUC("MSG-FRP","FRP",{opacity:0.85}, function(base,name,t){ FRP_MSG = {base:base, layer:name, time:t}; })
+    .then(function(n){ return "FRP: "+n; })
     .catch(function(e){ return "FRP falhou ("+e.message+")"; }),
   discoverADAGUC("MSG-FRMv3","Risco",{opacity:0.5}).then(function(n){ return "Risco: "+n; })
-    .catch(function(e){ return "Risco falhou ("+e.message+")"; })
+    .catch(function(e){ return "Risco falhou ("+e.message+")"; }),
+  discoverADAGUC("MTG-FRP","FRP MTG",{opacity:0.85}, function(base,name,t){ FRP_MTG = {base:base, layer:name, time:t}; })
+    .then(function(n){ return "FRP-MTG: "+n; })
+    .catch(function(e){ return null; })
 ]).then(function(r){
+  FRP_Q = FRP_MSG || FRP_MTG;
+  r = r.filter(Boolean);
   var bad = r.filter(function(s){ return s.indexOf("falhou")>=0; }).length;
   DIAG_SAF = { ok: bad<2, msg:r.join(" · ") };
   renderDiag();
 });
+
+/* Potência radiativa no ponto de uma ocorrência, por consulta WMS
+   GetFeatureInfo. É a peça que falta para ler "área ardida" e
+   "irradiação" juntas: hectares dizem o que já ardeu, FRP diz a
+   intensidade agora — um fogo pequeno com FRP a subir acelera, um
+   grande com FRP a cair esmorece.
+   Best-effort deliberado: o formato exato da resposta não está
+   documentado publicamente, por isso a leitura do número é tolerante
+   e qualquer falha (rede, formato, servidor) resolve para "sem
+   leitura" em vez de rebentar — a camada visual de FRP continua a
+   funcionar de qualquer forma, só o número no cartão é que some. */
+var frpCache = {};
+function frpNear(lat, lon){
+  if (!FRP_Q) return Promise.resolve(null);
+  var k = lat.toFixed(2)+","+lon.toFixed(2);
+  var hit = frpCache[k];
+  if (hit && Date.now()-hit.t < WX_MS) return Promise.resolve(hit.v);
+  var d = 0.09;   /* ~10 km de lado: maior que o pixel (3-4 km), pequeno que chegue */
+  var bbox = [lon-d, lat-d, lon+d, lat+d].join(",");
+  var u = FRP_Q.base+"service=WMS&version=1.3.0&request=GetFeatureInfo"+
+    "&crs=CRS:84&bbox="+bbox+"&width=101&height=101&i=50&j=50"+
+    "&layers="+encodeURIComponent(FRP_Q.layer)+"&query_layers="+encodeURIComponent(FRP_Q.layer)+
+    "&styles=&format=image/png&info_format=text/plain&feature_count=1"+
+    (FRP_Q.time ? "&time="+encodeURIComponent(FRP_Q.time) : "");
+  return fetch(u, {cache:"no-store"}).then(function(r){
+    if (!r.ok) throw new Error("HTTP "+r.status);
+    return r.text();
+  }).then(function(txt){
+    var m = txt.match(/-?\d+(\.\d+)?/);
+    var v = (m && parseFloat(m[0]) > 0) ? parseFloat(m[0]) : null;
+    frpCache[k] = { v:v, t:Date.now() };
+    return v;
+  }).catch(function(){ frpCache[k] = { v:null, t:Date.now() }; return null; });
+}
 
 /* ============================================================
    MAPA — RADAR (criado só quando a vista é aberta)
@@ -2242,7 +2448,7 @@ function renderIncidents(){
     ? "ANEPC · "+near.length+" num raio de 60 km"
     : "ANEPC · nada a menos de 60 km, a mostrar as mais próximas";
 
-  var html = "";
+  var html = "", frpTargets = [];
   show.forEach(function(e){
     var i=e.i, cls=statusClass(i.status,i.statusCode);
     var man = i.man==null?null:num(i.man), ter = i.terrain==null?null:num(i.terrain),
@@ -2261,6 +2467,9 @@ function renderIncidents(){
     /* estás a sotavento? o fogo corre no rumo `paraFogo` */
     var downwind = paraFogo !== null && e.dist <= 25 && angDiff(e.brgToRef, paraFogo) <= 40;
 
+    var frpId = "frp-"+(i.numero||e.dist.toFixed(4)).toString().replace(/[^\w-]/g,"");
+    if (ehIncendio(i)) frpTargets.push({ id:frpId, lat:i.lat, lon:i.lng });
+
     html += '<div class="inc '+cls+'" data-lat="'+i.lat+'" data-lng="'+i.lng+'">'+
       '<div class="inc-top"><span class="inc-where">'+esc(i.freguesia||i.concelho||"—")+'</span>'+
       '<span class="inc-dist">'+e.dist.toFixed(1)+' km '+compass(brgTo(REF.lat,REF.lon,i.lat,i.lng))+'</span></div>'+
@@ -2278,6 +2487,11 @@ function renderIncidents(){
         (paraFogo!==null ? '<span class="res" style="color:var(--orange)" title="'+
           (vf?'vento medido neste incêndio':'vento da tua posição, aproximação')+'">→ '+
           compass(paraFogo)+(vf?' '+Math.round(vf.speed)+' km/h':' (aprox.)')+'</span>' : '')+
+        /* span sempre presente para incêndios, mas vazio até frpNear
+           resolver — ":empty" apaga-o sem deixar vestígio enquanto não
+           há número, exatamente como um chip normal, não uma barra à parte */
+        (ehIncendio(i) ? '<span class="res frp" id="'+frpId+'" title="Potência radiativa no ponto — '+
+          'LSA-SAF, leitura pontual sujeita a falhar sem aviso"></span>' : '')+
       '</div>'+
       (baTot!==null && baTot>0 ? '<div class="ba"><span class="ba-tot">'+ha(baTot)+' ha</span>'+
         '<span class="ba-brk">povoamento '+ha(ba.povoamento)+' · mato '+ha(ba.mato)+
@@ -2306,6 +2520,19 @@ function renderIncidents(){
   body.innerHTML = html;
   bindRows(body, ".inc", mapS, 13);
   renderVento();
+
+  /* FRP pontual: só os incêndios mais próximos, para não multiplicar
+     pedidos a um servidor cujo comportamento sob carga não é conhecido.
+     Cada resposta escreve diretamente no seu span — se a lista tiver
+     sido substituída entretanto, o span já não existe e a escrita é
+     ignorada sem erro. */
+  frpTargets.slice(0,10).forEach(function(tg){
+    frpNear(tg.lat, tg.lon).then(function(v){
+      var el = document.getElementById(tg.id);
+      if (!el) return;
+      el.textContent = v===null ? "" : Math.round(v)+" MW";
+    });
+  });
 }
 
 function renderRoads(){
@@ -2496,20 +2723,64 @@ function renderTracks(gT, gD){
       color:cf, weight:1.4, opacity:0.4, dashArray:"4,4", interactive:false }).addTo(gT);
   });
 
-  var conf = drops.filter(function(d){ return d.confident; });
+  var conf  = drops.filter(function(d){ return d.confident; });
+  var firme = conf.filter(function(d){ return d.firme; });
+  var ca = cssVar("--amber");
+
   conf.forEach(function(d){
     var age = (Date.now()-d.t)/60000;
-    L.circleMarker([d.lat,d.lon], { radius:6, color:cd, weight:1.8,
-      fillColor:cd, fillOpacity:Math.max(.2, 1-age/TRACK_MAX_MIN)*0.7 })
-      .bindPopup('<b>Descarga provável</b><br><span class="mono">'+esc(d.id)+'</span><br>'+
+    var op  = Math.max(.2, 1-age/TRACK_MAX_MIN);
+
+    /* Sem vizinhança firme, o que se sabe é um trecho, não um ponto.
+       Desenhar um ponto seria afirmar uma precisão que não existe. */
+    if (!d.firme && d.errKm > 0.3){
+      L.polygon(circlePts(d.lat, d.lon, d.errKm*1000, 48), {
+        color:cd, weight:1.2, opacity:op*0.8, dashArray:"5,4",
+        fillColor:cd, fillOpacity:op*0.10, interactive:false }).addTo(gD);
+    }
+    L.circleMarker([d.lat,d.lon], {
+      radius: d.firme ? 6 : 4,
+      color: cd, weight: d.firme ? 1.8 : 1.2,
+      dashArray: d.firme ? null : "3,3",
+      fillColor:cd, fillOpacity: (d.firme ? 0.7 : 0.25)*op })
+      .bindPopup('<b>'+(d.firme?'Descarga provável':'Descarga provável — posição incerta')+'</b><br>'+
+        '<span class="mono">'+esc(d.id)+'</span><br>'+
         '<span class="mono">'+d.agl+' m acima do solo, subiu '+d.rise+' m</span><br>'+
         '<span class="mono">ocorrência a '+d.nearKm.toFixed(1)+' km · alt. por '+esc(d.method)+'</span><br>'+
+        (d.firme ? ''
+                 : '<span class="mono" style="color:var(--amber)">lacuna de '+d.gapS+
+                   ' s junto a este ponto · pode ter sido até '+d.errKm.toFixed(1)+
+                   ' km daqui</span><br>')+
         '<span class="mono">há '+Math.round(age)+' min</span>')
       .addTo(gD);
   });
-  /* o eixo: descargas por ordem temporal mostram para onde corre a frente */
-  if (conf.length >= 2){
-    L.polyline(conf.map(function(d){ return [d.lat,d.lon]; }), {
+
+  /* Zonas sem observação sobre ocorrência ativa: o que não foi visto,
+     desenhado como área e não como facto. */
+  lacunas.forEach(function(g){
+    var age = (Date.now()-g.t)/60000;
+    var op  = Math.max(.15, 1-age/TRACK_MAX_MIN)*0.8;
+    L.polygon(circlePts(g.lat, g.lon, Math.max(g.raioKm,0.5)*1000, 48), {
+      color:ca, weight:1.1, opacity:op, dashArray:"2,5",
+      fillColor:ca, fillOpacity:op*0.08, interactive:false }).addTo(gD);
+    L.polyline([[g.lat,g.lon],[g.latB,g.lonB]], {
+      color:ca, weight:1.4, opacity:op, dashArray:"2,6", interactive:false }).addTo(gD);
+    L.circleMarker([g.lat,g.lon], { radius:3, color:ca, weight:1.2,
+      fillColor:ca, fillOpacity:op*0.4 })
+      .bindPopup('<b>Sem observação</b><br><span class="mono">'+esc(g.id)+'</span><br>'+
+        '<span class="mono">'+g.gapS+' s sem posição, junto a ocorrência a '+
+        g.nearKm.toFixed(1)+' km</span><br>'+
+        (g.subiu !== null ? '<span class="mono">reapareceu '+g.subiu+' m '+
+          (g.subiu>=0?'acima':'abaixo')+'</span><br>' : '')+
+        '<span class="mono" style="color:var(--amber)">pode ter havido largada aqui — '+
+        'raio até '+g.raioKm.toFixed(1)+' km</span>')
+      .addTo(gD);
+  });
+
+  /* O eixo só é traçado com descargas de posição firme: uma marca
+     incerta puxaria a linha para onde nada aconteceu. */
+  if (firme.length >= 2){
+    L.polyline(firme.map(function(d){ return [d.lat,d.lon]; }), {
       color:cd, weight:2.6, opacity:0.55, interactive:false }).addTo(gD);
   }
   if (view === "radar" && radarReady) $("rNdrop").textContent = String(conf.length);
@@ -2529,12 +2800,43 @@ function renderDrops(){
     tracks[h].pts.forEach(function(p){ if (p.agl !== null) known++; });
   });
 
+  /* A cobertura qualifica tudo o que este painel diz. "Nenhuma descarga"
+     com 95% de cobertura é uma observação; com 40% é uma confissão. */
+  var cob = coberturaCombate();
+  var cobTxt = "";
+  if (cob !== null){
+    var pc = Math.round(cob*100);
+    var cor = pc >= 85 ? "var(--green)" : pc >= 60 ? "var(--amber)" : "var(--red)";
+    cobTxt = '<p class="pane-note" style="padding-left:0;padding-right:0">'+
+      'Cobertura ADS-B das aeronaves de combate: <b style="color:'+cor+'">'+pc+'%</b>'+
+      ' do tempo observado com amostragem contínua'+
+      (pc < 85 ? ' — o que falta são intervalos em que nada pôde ser detetado.' : '.')+
+      '</p>';
+  }
+
+  var lacTxt = "";
+  if (lacunas.length){
+    var maior = lacunas.reduce(function(m,g){ return g.gapS > m.gapS ? g : m; });
+    lacTxt = '<div class="inc s-amber" style="margin-top:8px" data-lat="'+maior.lat+
+      '" data-lng="'+maior.lon+'"><div class="ac-main">'+
+      '<div class="ac-id" style="color:var(--amber)">'+lacunas.length+
+      ' janela(s) sem observação sobre ocorrência</div>'+
+      '<div class="ac-sub">maior: '+esc(maior.id)+' · '+maior.gapS+' s sem posição · '+
+      'raio até '+maior.raioKm.toFixed(1)+' km'+
+      (maior.subiu !== null && maior.subiu > 0 ? ' · reapareceu '+maior.subiu+' m acima' : '')+
+      '</div></div></div>'+
+      '<p class="pane-note" style="padding-left:0;padding-right:0">'+
+      'Pode ter havido largada nestes intervalos. Não é detetável nem localizável — '+
+      'marcado no mapa como área, nunca como ponto.</p>';
+  }
+
   if (!conf.length){
     el.innerHTML = '<div class="state">'+
       (known===0 ? "Ainda sem cota do terreno para as trajetórias. A altura acima do solo precisa de alguns ciclos a acumular posições."
                  : "Nenhuma descarga detetada nos últimos "+TRACK_MAX_MIN+" min."+
                    (maybe.length?" "+maybe.length+" passagem(ns) baixa(s) longe de ocorrências — provável recolha de água ou aterragem.":""))+
-      '</div>';
+      '</div>'+lacTxt+cobTxt;
+    bindRows(el, ".inc", mapS, 13);
     return;
   }
 
@@ -2543,11 +2845,14 @@ function renderDrops(){
   var html = "";
   Object.keys(by).forEach(function(h){
     var ds=by[h], last=ds[ds.length-1], age=Math.round((Date.now()-last.t)/60000);
+    var nInc = ds.filter(function(d){ return !d.firme; }).length;
     html += '<div class="ac fire" data-lat="'+last.lat+'" data-lng="'+last.lon+'">'+
       '<div class="ac-tag" style="border-color:var(--red)"><span style="font-family:var(--f-mono);'+
       'font-size:14px;font-weight:600;color:var(--red)">'+ds.length+'</span></div>'+
       '<div class="ac-main"><div class="ac-id" style="color:var(--red)">'+esc(last.id)+'</div>'+
-      '<div class="ac-sub">'+esc(last.type)+' · última há '+age+' min · '+last.agl+' m AGL</div></div>'+
+      '<div class="ac-sub">'+esc(last.type)+' · última há '+age+' min · '+last.agl+' m AGL'+
+      (nInc ? ' · <span style="color:var(--amber)">'+nInc+' de posição incerta</span>' : '')+
+      '</div></div>'+
       '<div class="ac-alt">'+last.nearKm.toFixed(1)+' km</div></div>';
   });
   if (maybe.length){
@@ -2555,8 +2860,9 @@ function renderDrops(){
       ' passagem(ns) baixa(s) a mais de '+NEAR_FIRE_KM+' km de qualquer ocorrência — '+
       'não contadas: provável recolha de água ou aterragem.</p>';
   }
-  el.innerHTML = html;
+  el.innerHTML = html + lacTxt + cobTxt;
   bindRows(el, ".ac", mapS, 14);
+  bindRows(el, ".inc", mapS, 13);
 }
 
 function bindRows(root, sel, map, zoom){
@@ -2592,7 +2898,7 @@ function renderDiag(){
     '<span class="dot '+(netMode.direct===true?"ok":(netMode.direct===false?"bad":""))+'"></span>'+
     '<span class="nm">Rede</span><span class="via">'+esc(modeTxt)+'</span></div>'+
     '<div class="msg">'+esc(lines.join(" · "))+
-    (usingProxy()?'<br>'+(proxyProprio?'Proxy próprio configurado.':'Sem proxy próprio: a depender de proxies públicos, que caem com frequência. Ver worker.js.'):'')+'</div></div>';
+    (usingProxy()?'<br>'+(proxyProprio===PROXY_PADRAO?'Proxy próprio (por omissão do projeto) ativo.':'Proxy próprio configurado.'):'')+'</div></div>';
 
   if (DIAG_SAF.ok !== null){
     html += '<div class="dg '+(DIAG_SAF.ok?"":"bad")+'"><div class="dg-top">'+
@@ -2841,9 +3147,10 @@ $("btnFires").addEventListener("click", function(){
 
 /* ---------- chave do ADSBx ---------- */
 $("proxySave").addEventListener("click", function(){
-  proxyProprio = $("proxyIn").value.trim();
+  var v = $("proxyIn").value.trim();
+  proxyProprio = v || PROXY_PADRAO;   /* vazio não desliga, volta ao por omissão */
   try {
-    if (proxyProprio) localStorage.setItem("sitrep_proxy", proxyProprio);
+    if (v) localStorage.setItem("sitrep_proxy", v);
     else localStorage.removeItem("sitrep_proxy");
   } catch(e){}
   netMode.proxy = null;          /* reavaliar qual serve */
@@ -2853,7 +3160,9 @@ $("proxySave").addEventListener("click", function(){
 });
 
 function syncKeyUI(){
-  $("btnKey").textContent = (adsbKey || proxyProprio) ? "Chave ✓" : "Chave";
+  /* o "✓" passou a marcar personalização, não a mera existência de um
+     proxy — esse existe sempre agora, por omissão */
+  $("btnKey").textContent = (adsbKey || proxyProprio !== PROXY_PADRAO) ? "Chave ✓" : "Chave";
   $("proxyIn").value = proxyProprio;
   $("keyIn").value = adsbKey;
   $("quotaCalc").textContent = Math.round(AC_MS/1000)+" s";
