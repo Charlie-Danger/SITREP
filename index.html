@@ -717,7 +717,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.8";
+var VERSAO = "2026-09-20.10";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -917,9 +917,15 @@ function fetchVia(url, ms, headers){
 
   function viaProxy(){
     var order = proxies().slice();
-    if (netMode.proxy) order.sort(function(a,b){
-      return (b.name===netMode.proxy)-(a.name===netMode.proxy);
-    });
+    /* O proxy próprio é infraestrutura do utilizador: nunca deve ser
+       deslocado por um público que tenha respondido uma vez. Antes, um
+       "allorigins" memorizado ficava à frente e gastava o tempo todo
+       antes de chegar ao Worker. */
+    if (netMode.proxy && netMode.proxy !== "próprio" && order[0].name !== "próprio"){
+      order.sort(function(a,b){
+        return (b.name===netMode.proxy)-(a.name===netMode.proxy);
+      });
+    }
     var i = 0;
     /* Percorrer três proxies com timeout cheio somava mais de trinta
        segundos antes de desistir. Cada um leva metade do tempo: se não
@@ -1454,6 +1460,10 @@ function loadAircraft(){
           ingestAircraft(list, s.n, r.via, s.f);
           renderDiag();
           resolve();
+          /* Com proxy próprio há folga para consultar uma segunda rede e
+             juntar o que ela vê a mais. Cada rede só conhece o que os
+             seus recetores apanham; a união melhora a cobertura real. */
+          if (proxyProprio) complementar(s, list);
         })
         .catch(function(e){
           var m = (e && e.message) ? e.message : "?";
@@ -1473,6 +1483,26 @@ function loadAircraft(){
 
     lancar();
   }).catch(function(){ semRede(); });
+
+  /* Segunda rede, em background, só para acrescentar o que faltou. */
+  function complementar(usada, base){
+    var outra = chain.filter(function(s){
+      return s.n !== usada.n && s.f === "readsb" && !s.paid;
+    })[0];
+    if (!outra) return;
+    var u = outra.u(REF.lat.toFixed(4), REF.lon.toFixed(4), ADSB_RADIUS_NM);
+    fetchVia(u, rede.timeout, null).then(function(r){
+      var lista2 = r.data.ac || r.data.aircraft || [];
+      if (!lista2.length) return;
+      var unido = unirAc([base, lista2]);
+      var extra = unido.length - base.length;
+      if (extra <= 0) return;                  /* nada de novo, não redesenhar */
+      DIAG.aircraft.via = usada.n+" + "+outra.n;
+      DIAG.aircraft.msg = "união de duas redes · "+extra+" contacto(s) só na segunda";
+      ingestAircraft(unido, usada.n+" + "+outra.n, r.via, "readsb");
+      renderDiag();
+    }).catch(function(){ /* a união é bónus: falhar não estraga nada */ });
+  }
 
   function semRede(){
       adsbFails++;
@@ -1503,6 +1533,32 @@ function loadAircraft(){
       renderDiag();
       return;
     }
+}
+
+/* Une leituras de redes diferentes. Cada rede vê o que os seus próprios
+   recetores apanham: onde uma tem cobertura, a outra pode não ter. Em
+   caso de repetido, fica a posição mais recente. */
+function unirAc(listas){
+  var por = {}, ordem = [];
+  listas.forEach(function(l){
+    (l || []).forEach(function(a){
+      var k = (a.hex || a.r || (a.flight||"").trim() || "").toUpperCase();
+      if (!k || typeof a.lat !== "number" || typeof a.lon !== "number") return;
+      var ant = por[k];
+      if (!ant){ por[k] = a; ordem.push(k); return; }
+
+      /* fica a posição mais recente, mas os campos descritivos vêm de
+         qualquer uma que os tenha: o tipo é o que classifica um meio de
+         combate, e nem todas as redes o publicam */
+      var bom = num(a.seen_pos) < num(ant.seen_pos) ? a : ant;
+      var outro = bom === a ? ant : a;
+      if (!bom.t && outro.t) bom.t = outro.t;
+      if (!bom.r && outro.r) bom.r = outro.r;
+      if (!bom.flight && outro.flight) bom.flight = outro.flight;
+      por[k] = bom;
+    });
+  });
+  return ordem.map(function(k){ return por[k]; });
 }
 
 function classify(a){
