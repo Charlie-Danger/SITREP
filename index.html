@@ -591,6 +591,16 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
     minutos e resolve isto de vez.
   </p>
 
+  <label for="proxyIn2" style="flex-basis:100%">Proxy secundário (Deno Deploy, opcional)</label>
+  <input type="url" id="proxyIn2" placeholder="https://xxx.deno.dev" autocomplete="off" spellcheck="false">
+  <button class="btn" id="proxySave2" type="button">Guardar proxy 2</button>
+  <p class="keynote">
+    Alguns serviços de ADS-B bloqueiam ou limitam tráfego vindo especificamente da Cloudflare —
+    gama de IP conhecida, alvo comum de scraping. Um segundo proxy noutro fornecedor (o ficheiro
+    <span>deno-proxy.js</span> do projeto) dá uma segunda hipótese quando o primeiro for recusado,
+    antes de cair nos públicos. Tentado sempre depois do Cloudflare, nunca antes.
+  </p>
+
   <label for="keyIn" style="flex-basis:100%">Chave RapidAPI do ADS-B Exchange</label>
   <input type="password" id="keyIn" placeholder="opcional — vazio usa as redes comunitárias" autocomplete="off" spellcheck="false">
   <button class="btn" id="keySave" type="button">Guardar</button>
@@ -729,7 +739,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.15";
+var VERSAO = "2026-09-20.16";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -808,18 +818,36 @@ try {
   if (proxyGuardado) proxyProprio = proxyGuardado;
 } catch(e){}
 
+/* Segunda fonte própria, noutro fornecedor — ver deno-proxy.js. Vazio
+   por omissão: só entra em jogo depois de publicado e configurado.
+   A ideia é diversificar a origem do tráfego: um bloqueio por gama de
+   IP na Cloudflare não afeta o Deno Deploy, e vice-versa. Tentada
+   sempre depois do Cloudflare, nunca antes — este é o que já provou
+   ser fiável para o resto do painel (PROCIV, fogos.pt, LSA-SAF). */
+var PROXY_PADRAO_2 = "";
+var proxyProprio2 = PROXY_PADRAO_2;
+try {
+  var proxyGuardado2 = localStorage.getItem("sitrep_proxy2");
+  if (proxyGuardado2) proxyProprio2 = proxyGuardado2;
+} catch(e){}
+
 var PROXIES_PUB = [
   { name:"allorigins", wrap:function(u){ return "https://api.allorigins.win/raw?url="+encodeURIComponent(u); } },
   { name:"codetabs",   wrap:function(u){ return "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u); } },
   { name:"corsproxy",  wrap:function(u){ return "https://corsproxy.io/?url="+encodeURIComponent(u); } }
 ];
 
+function ehProprio(nome){ return nome === "próprio" || nome === "próprio-2"; }
+
 function proxies(){
-  if (!proxyProprio) return PROXIES_PUB;
-  var meu = { name:"próprio", wrap:function(u){
+  var proprios = [];
+  if (proxyProprio) proprios.push({ name:"próprio", wrap:function(u){
     return proxyProprio.replace(/\/+$/,"") + "/?url=" + encodeURIComponent(u);
-  } };
-  return [meu].concat(PROXIES_PUB);   /* o próprio primeiro, públicos como rede */
+  } });
+  if (proxyProprio2) proprios.push({ name:"próprio-2", wrap:function(u){
+    return proxyProprio2.replace(/\/+$/,"") + "/?url=" + encodeURIComponent(u);
+  } });
+  return proprios.concat(PROXIES_PUB);   /* próprios primeiro, sempre por esta ordem, públicos como rede */
 }
 
 var ADSBX_HOST = "adsbexchange-com1.p.rapidapi.com";
@@ -980,29 +1008,36 @@ function fetchVia(url, ms, headers){
   if (!netHost[host]) netHost[host] = { direct:null };
 
   function viaProxy(){
-    var order = proxies().slice();
-    /* O proxy próprio é infraestrutura do utilizador: nunca deve ser
-       deslocado por um público que tenha respondido uma vez. Antes, um
-       "allorigins" memorizado ficava à frente e gastava o tempo todo
-       antes de chegar ao Worker. */
-    if (netMode.proxy && netMode.proxy !== "próprio" && order[0].name !== "próprio"){
-      order.sort(function(a,b){
+    var todos = proxies().slice();
+    var proprios = todos.filter(function(p){ return ehProprio(p.name); });
+    var publicos = todos.filter(function(p){ return !ehProprio(p.name); });
+    /* As fontes próprias são infraestrutura do utilizador: nunca devem
+       ser deslocadas por um público que tenha respondido uma vez, nem
+       trocadas de ordem entre si — Cloudflare primeiro, sempre, porque
+       é a que já provou ser fiável para o resto do painel. A memória
+       de "qual respondeu por último" só se aplica dentro dos públicos.
+       Antes, um "allorigins" memorizado ficava à frente de tudo e
+       gastava o tempo todo antes de sequer chegar ao Worker. */
+    if (netMode.proxy && !ehProprio(netMode.proxy)){
+      publicos.sort(function(a,b){
         return (b.name===netMode.proxy)-(a.name===netMode.proxy);
       });
     }
+    var order = proprios.concat(publicos);
     var i = 0;
     /* Percorrer três proxies com timeout cheio somava mais de trinta
        segundos antes de desistir. Cada um leva metade do tempo: se não
        responder depressa, não vale a pena esperar por ele.
-       O próprio é exceção: não é partilhado por meio mundo, e cortá-lo
-       ao mesmo prazo empurrava para um público pior sempre que a fonte
-       original (não o Worker) demorasse um pouco mais — o Worker tem
-       12 s de orçamento próprio, faz sentido deixá-lo usá-los. */
+       As fontes próprias são exceção: não são partilhadas por meio
+       mundo, e cortá-las ao mesmo prazo empurrava para um público pior
+       sempre que a fonte original (não o Worker) demorasse um pouco
+       mais — cada uma tem 12 s de orçamento próprio, faz sentido
+       deixá-las usá-los. */
     var toP = Math.max(4000, Math.round(to * 0.55));
     function next(){
       if (i >= order.length){ netMode.proxy = null; throw new Error("proxies indisponíveis"); }
       var p = order[i++];
-      var tp = (p.name === "próprio") ? Math.max(toP, Math.min(to, 9000)) : toP;
+      var tp = ehProprio(p.name) ? Math.max(toP, Math.min(to, 9000)) : toP;
       return fetchJSON(p.wrap(url), tp)
         .then(function(d){ netMode.proxy = p.name; return { data:d, via:p.name }; })
         .catch(next);
@@ -2933,7 +2968,8 @@ function renderDiag(){
     '<span class="dot '+(netMode.direct===true?"ok":(netMode.direct===false?"bad":""))+'"></span>'+
     '<span class="nm">Rede</span><span class="via">'+esc(modeTxt)+'</span></div>'+
     '<div class="msg">'+esc(lines.join(" · "))+
-    (usingProxy()?'<br>'+(proxyProprio===PROXY_PADRAO?'Proxy próprio (por omissão do projeto) ativo.':'Proxy próprio configurado.'):'')+'</div></div>';
+    (usingProxy()?'<br>'+(proxyProprio===PROXY_PADRAO?'Proxy próprio (por omissão do projeto) ativo.':'Proxy próprio configurado.')+
+      (proxyProprio2?' Segunda fonte própria ativa.':''):'')+'</div></div>';
 
   if (adsbLog.length){
     var periodos = adsbPeriodos(), agora = Date.now();
@@ -3213,12 +3249,25 @@ $("proxySave").addEventListener("click", function(){
   syncKeyUI();
   refreshAll(true);
 });
+$("proxySave2").addEventListener("click", function(){
+  var v = $("proxyIn2").value.trim();
+  proxyProprio2 = v || PROXY_PADRAO_2;   /* vazio desliga a segunda fonte, não há omissão para ela */
+  try {
+    if (v) localStorage.setItem("sitrep_proxy2", v);
+    else localStorage.removeItem("sitrep_proxy2");
+  } catch(e){}
+  netMode.proxy = null;
+  netHost = {};
+  syncKeyUI();
+  refreshAll(true);
+});
 
 function syncKeyUI(){
   /* o "✓" passou a marcar personalização, não a mera existência de um
      proxy — esse existe sempre agora, por omissão */
-  $("btnKey").textContent = (adsbKey || proxyProprio !== PROXY_PADRAO) ? "Chave ✓" : "Chave";
+  $("btnKey").textContent = (adsbKey || proxyProprio !== PROXY_PADRAO || proxyProprio2) ? "Chave ✓" : "Chave";
   $("proxyIn").value = proxyProprio;
+  $("proxyIn2").value = proxyProprio2;
   $("keyIn").value = adsbKey;
   $("quotaCalc").textContent = Math.round(AC_MS/1000)+" s";
   $("quotaHours").textContent = Math.round(10000/(3600000/AC_MS));
