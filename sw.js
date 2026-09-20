@@ -36,7 +36,9 @@ var DADOS = [
   "adsbexchange-com1.p.rapidapi.com",
   "api.allorigins.win",
   "api.codetabs.com",
-  "corsproxy.io"
+  "corsproxy.io",
+  "workers.dev",
+  "deno.dev"
 ];
 
 /* cartografia: imagens estáveis, valem a pena guardar */
