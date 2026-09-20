@@ -571,7 +571,17 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 </div>
 
 <div class="keybar" id="keyBar" hidden>
-  <label for="keyIn">Chave RapidAPI do ADS-B Exchange</label>
+  <label for="proxyIn">Proxy próprio (Cloudflare Worker)</label>
+  <input type="url" id="proxyIn" placeholder="https://sitrep-proxy.xxx.workers.dev" autocomplete="off" spellcheck="false">
+  <button class="btn" id="proxySave" type="button">Guardar proxy</button>
+  <p class="keynote">
+    As redes ADS-B e o fogos.pt não servem CORS — um browser nunca lhes chega em direto.
+    Sem proxy próprio, o painel depende de proxies públicos partilhados, que caem com frequência.
+    O ficheiro <span>worker.js</span> do projeto publica-se gratuitamente na Cloudflare em cinco
+    minutos e resolve isto de vez.
+  </p>
+
+  <label for="keyIn" style="flex-basis:100%">Chave RapidAPI do ADS-B Exchange</label>
   <input type="password" id="keyIn" placeholder="opcional — vazio usa as redes comunitárias" autocomplete="off" spellcheck="false">
   <button class="btn" id="keySave" type="button">Guardar</button>
   <button class="btn" id="keyClear" type="button">Remover</button>
@@ -707,7 +717,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.7";
+var VERSAO = "2026-09-20.8";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -750,11 +760,27 @@ var ADSB = [
     } }
 ];
 
-var PROXIES = [
+/* Proxy próprio, se configurado. As redes ADS-B e o fogos.pt não servem
+   cabeçalhos CORS, por isso um browser nunca lhes chega em direto, nem
+   em HTTPS. Os proxies públicos abaixo são recurso: caem com frequência
+   e são partilhados por meio mundo. Um Worker próprio resolve de vez —
+   ver o worker.js que acompanha o projeto. */
+var proxyProprio = "";
+try { proxyProprio = localStorage.getItem("sitrep_proxy") || ""; } catch(e){}
+
+var PROXIES_PUB = [
   { name:"allorigins", wrap:function(u){ return "https://api.allorigins.win/raw?url="+encodeURIComponent(u); } },
   { name:"codetabs",   wrap:function(u){ return "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u); } },
   { name:"corsproxy",  wrap:function(u){ return "https://corsproxy.io/?url="+encodeURIComponent(u); } }
 ];
+
+function proxies(){
+  if (!proxyProprio) return PROXIES_PUB;
+  var meu = { name:"próprio", wrap:function(u){
+    return proxyProprio.replace(/\/+$/,"") + "/?url=" + encodeURIComponent(u);
+  } };
+  return [meu].concat(PROXIES_PUB);   /* o próprio primeiro, públicos como rede */
+}
 
 var ADSBX_HOST = "adsbexchange-com1.p.rapidapi.com";
 
@@ -890,15 +916,19 @@ function fetchVia(url, ms, headers){
   if (!netHost[host]) netHost[host] = { direct:null };
 
   function viaProxy(){
-    var order = PROXIES.slice();
+    var order = proxies().slice();
     if (netMode.proxy) order.sort(function(a,b){
       return (b.name===netMode.proxy)-(a.name===netMode.proxy);
     });
     var i = 0;
+    /* Percorrer três proxies com timeout cheio somava mais de trinta
+       segundos antes de desistir. Cada um leva metade do tempo: se não
+       responder depressa, não vale a pena esperar por ele. */
+    var toP = Math.max(4000, Math.round(to * 0.55));
     function next(){
       if (i >= order.length){ netMode.proxy = null; throw new Error("proxies indisponíveis"); }
       var p = order[i++];
-      return fetchJSON(p.wrap(url), to+6000)
+      return fetchJSON(p.wrap(url), toP)
         .then(function(d){ netMode.proxy = p.name; return { data:d, via:p.name }; })
         .catch(next);
     }
@@ -2506,7 +2536,7 @@ function renderDiag(){
     '<span class="dot '+(netMode.direct===true?"ok":(netMode.direct===false?"bad":""))+'"></span>'+
     '<span class="nm">Rede</span><span class="via">'+esc(modeTxt)+'</span></div>'+
     '<div class="msg">'+esc(lines.join(" · "))+
-    (usingProxy()?'<br>Cadência aliviada. Servir por HTTP dispensa os proxies.':'')+'</div></div>';
+    (usingProxy()?'<br>'+(proxyProprio?'Proxy próprio configurado.':'Sem proxy próprio: a depender de proxies públicos, que caem com frequência. Ver worker.js.'):'')+'</div></div>';
 
   if (DIAG_SAF.ok !== null){
     html += '<div class="dg '+(DIAG_SAF.ok?"":"bad")+'"><div class="dg-top">'+
@@ -2754,8 +2784,21 @@ $("btnFires").addEventListener("click", function(){
 });
 
 /* ---------- chave do ADSBx ---------- */
+$("proxySave").addEventListener("click", function(){
+  proxyProprio = $("proxyIn").value.trim();
+  try {
+    if (proxyProprio) localStorage.setItem("sitrep_proxy", proxyProprio);
+    else localStorage.removeItem("sitrep_proxy");
+  } catch(e){}
+  netMode.proxy = null;          /* reavaliar qual serve */
+  netHost = {};                  /* e se algum host já passa em direto */
+  syncKeyUI();
+  refreshAll(true);
+});
+
 function syncKeyUI(){
-  $("btnKey").textContent = adsbKey ? "Chave ✓" : "Chave";
+  $("btnKey").textContent = (adsbKey || proxyProprio) ? "Chave ✓" : "Chave";
+  $("proxyIn").value = proxyProprio;
   $("keyIn").value = adsbKey;
   $("quotaCalc").textContent = Math.round(AC_MS/1000)+" s";
   $("quotaHours").textContent = Math.round(10000/(3600000/AC_MS));
