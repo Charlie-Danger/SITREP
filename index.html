@@ -748,7 +748,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.18";
+var VERSAO = "2026-09-20.19";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2855,7 +2855,7 @@ function renderTracks(gT, gD){
     if (!d.firme && d.errKm > 0.3){
       L.polygon(circlePts(d.lat, d.lon, d.errKm*1000, 48), {
         color:cd, weight:1.2, opacity:op*0.8, dashArray:"5,4",
-        fillColor:cd, fillOpacity:op*0.10, interactive:false }).addTo(gD);
+        fill:false, interactive:false }).addTo(gD);
     }
     L.circleMarker([d.lat,d.lon], {
       radius: d.firme ? 6 : 4,
