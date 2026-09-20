@@ -218,6 +218,11 @@ body.dia #mapR .leaflet-pane.leaflet-labels-pane{filter:invert(1) grayscale(1) b
 body.osmfall #mapR .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) grayscale(1) brightness(.62) contrast(1.35)}
 body.dia.osmfall #mapR .leaflet-tile-pane{filter:grayscale(1) brightness(1.04) contrast(.9)}
 
+/* SITREP: escala de cinzentos opcional sobre o satélite — só a imagem,
+   nunca os nomes/estradas (pane "ref") nem os focos/área ardida (WMS),
+   para as marcas de descarga (a cores) continuarem a saltar à vista. */
+#mapS.cinza .sat-tiles{filter:grayscale(1) brightness(.92) contrast(1.12)}
+
 /* ---------- aeronaves, comum às duas vistas ---------- */
 .ac-sym{position:relative;width:22px;height:22px;overflow:visible}
 .ac-sym svg{display:block;position:absolute;left:0;top:0;
@@ -743,7 +748,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.17";
+var VERSAO = "2026-09-20.18";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1962,7 +1967,7 @@ function detectDrops(){
 var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true }).setView([REF.lat,REF.lon],10);
 
 var sSat  = L.tileLayer(ESRI+"World_Imagery/MapServer/tile/{z}/{y}/{x}",
-              { maxZoom:18, attribution:"Imagery &copy; Esri" }).addTo(mapS);
+              { maxZoom:18, attribution:"Imagery &copy; Esri", className:"sat-tiles" }).addTo(mapS);
 var sTopo = L.tileLayer(ESRI+"World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
               { maxZoom:18, attribution:"&copy; Esri" });
 var sOSM  = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -2005,9 +2010,15 @@ var gAcS = L.layerGroup().addTo(mapS);
 var gTrackS = L.layerGroup().addTo(mapS);
 var gDropS = L.layerGroup().addTo(mapS);
 
+/* interruptor de escala de cinzentos: não é uma camada visual própria,
+   é um grupo vazio só para aparecer no controlo com caixa de marcar —
+   ligar/desligar dispara overlayadd/overlayremove, que troca a classe
+   CSS no contentor do mapa (ver #mapS.cinza acima). */
+var grisS = L.layerGroup();
 var ctlS = L.control.layers(
   { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM },
   { "Nomes de povoação":sNomes, "Estradas":sEstradas,
+    "Escala de cinzentos (satélite)":grisS,
     "Ocorrências":gIncS, "Setas de propagação":gVentoS,
     "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
     "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
@@ -2016,6 +2027,12 @@ var ctlS = L.control.layers(
     "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea },
   { collapsed:true }
 ).addTo(mapS);
+mapS.on("overlayadd", function(e){
+  if (e.layer === grisS) mapS.getContainer().classList.add("cinza");
+});
+mapS.on("overlayremove", function(e){
+  if (e.layer === grisS) mapS.getContainer().classList.remove("cinza");
+});
 
 /* O topográfico e o OSM já trazem nomes e estradas desenhados: manter a
    camada de referência por cima duplicaria os rótulos. */
@@ -2187,7 +2204,10 @@ function buildRadar(){
   gAcR = L.layerGroup().addTo(mapR);
 
   L.control.layers({ "Escuro (radar)":baseDark, "Satélite":rSat },
-                   { "Nomes de povoação":labelsDark },
+                   { "Nomes de povoação":labelsDark,
+                     "Anéis e vento":gRings, "Ocorrências":gFiresR,
+                     "Trajetórias de combate":gTrackR, "Descargas prováveis":gDropR,
+                     "Aeronaves":gAcR },
                    { collapsed:true, position:"topright" }).addTo(mapR);
 
   lastZoom = mapR.getZoom();
