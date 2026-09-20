@@ -311,6 +311,22 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       border-left:2px solid var(--red);font-family:var(--f-cond);font-size:13px;
       font-weight:600;letter-spacing:.04em;color:var(--red)}
 
+.risco-box{
+  margin:12px 0;padding:9px 12px;
+  background:var(--panel-2);border-left:3px solid var(--rule-hi);
+}
+.risco-box .lblm{
+  font-family:var(--f-cond);font-size:10.5px;font-weight:600;
+  letter-spacing:.15em;text-transform:uppercase;color:var(--ink-mute);
+}
+.risco-val{
+  font-family:var(--f-cond);font-size:21px;font-weight:700;
+  letter-spacing:.03em;margin-top:2px;
+}
+.risco-sub{
+  font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mute);
+  margin-top:3px;line-height:1.5;
+}
 .wind{display:flex;align-items:center;gap:18px;padding:16px 0 4px;flex-wrap:wrap}
 .rose{flex:0 0 118px}
 .wind-read{flex:1 1 150px;min-width:140px}
@@ -405,25 +421,98 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .row.stale{opacity:.45}
 .empty{padding:16px 12px;color:var(--ink-mute);font-size:11px;line-height:1.6;font-family:var(--f-mono)}
 
-@media (max-width:760px){
-  .hud.bl{max-height:38%;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
-  .tbl{min-width:0;max-width:calc(100vw - 24px)}
-  .tbl-h,.row{grid-template-columns:72px 1fr 50px 40px;gap:6px}
-  .row{padding:10px 11px;font-size:12.5px}
-  .tbl-h span:nth-child(5),.row span:nth-child(5){display:none}
-  .hud.tr{padding:10px 12px;top:auto;bottom:0;
-          padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
-  .hud.tr .box{display:flex;gap:14px;align-items:baseline}
-  .hud.tr .box .big{font-size:18px}
-  .hud.br{display:none}
+/* pega da tabela de contactos: em telemóvel o mapa é que interessa */
+.tbl-pega{
+  display:none;width:100%;align-items:center;gap:8px;
+  padding:9px 11px;cursor:pointer;
+  background:var(--hud);border:none;border-bottom:1px solid var(--rule-hi);
+  font-family:var(--f-cond);font-size:12px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mid);
 }
+.pega-txt{flex:1;text-align:left}
+.pega-ico{transition:transform .15s;font-size:11px}
+.tbl.fechada .pega-ico{transform:rotate(-90deg)}
+.tbl.fechada #rCorpo{display:none}
+
+.only-narrow{display:none}
+.maisbar{
+  display:flex;gap:8px;flex-wrap:wrap;
+  padding:0 var(--gut) 10px;background:var(--panel);
+  border-bottom:1px solid var(--rule);
+}
+
+@media (max-width:760px){
+  .only-wide{display:none}
+  .only-narrow{display:inline-block}
+  .clock{display:none}
+  .tbl-pega{display:flex}
+
+  /* Controlos numa linha, contexto noutra abaixo. A marca sai: o nome
+     da app já está no ecrã inicial, e aqui só roubava largura aos
+     botões, empurrando-os para uma segunda linha. */
+  .topbar{
+    display:grid;
+    grid-template-columns:auto 1fr auto auto;
+    grid-template-areas:"seg seg pos mais" "sub sub sub sub";
+    gap:7px 8px;align-items:center;
+  }
+  .brand{grid-area:sub;margin:0;min-width:0}
+  .brand h1{display:none}
+  .brand .sub{
+    font-size:11px;letter-spacing:.1em;
+    display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .seg{grid-area:seg;justify-self:start}
+  #btnRef{grid-area:pos}
+  #btnCasa{display:none}          /* está no painel de posição */
+  #btnMais{grid-area:mais}
+  .topbar .btn{white-space:nowrap}
+
+  /* estado numa linha só, logo abaixo da barra — sem caixas flutuantes
+     a disputar o mesmo canto */
+  .hud.tl{
+    top:0;left:0;right:0;padding:0;
+  }
+  .hud.tl .box{
+    display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+    border:none;border-bottom:1px solid var(--rule-hi);padding:6px 12px;
+  }
+  .hud.tl .lbl{display:none}
+  .hud.tl .hsub{margin:0;font-size:10px;overflow:hidden;
+                text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .hud.tl .why{display:none}
+
+  .hud.tr{
+    top:auto;bottom:0;right:0;left:0;padding:0;
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  .hud.tr .box{
+    display:flex;gap:6px;align-items:baseline;justify-content:space-around;
+    border:none;border-top:1px solid var(--rule-hi);padding:5px 10px;
+  }
+  .hud.tr .lbl{margin:0!important;font-size:9.5px;letter-spacing:.1em}
+  .hud.tr .big{font-size:16px;display:inline;margin-left:3px}
+
+  .hud.bl{
+    bottom:36px;left:0;right:0;padding:0 10px;max-height:46%;
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  .tbl{min-width:0;max-width:100%}
+  .tbl-h,.row{grid-template-columns:76px 1fr 54px 44px;gap:6px}
+  .row{padding:9px 11px;font-size:12.5px}
+  .tbl-h span:nth-child(5),.row span:nth-child(5){display:none}
+  .hud.br{display:none}
+  .leaflet-control-zoom{display:none}   /* a pinça chega e liberta ecrã */
+}
+
 @media (max-width:640px){
   #mapS{height:46vh;min-height:250px}
-  .brand h1{font-size:17px}
+  .brand h1{font-size:16px}
+  .brand .sub{font-size:10.5px}
   .pane-body{max-height:none}
   .deck{grid-template-columns:1fr}
-  .topbar{gap:8px;padding:8px 12px}
-  .btn,.seg button{padding:10px 13px}
+  .topbar{gap:7px;padding:7px 12px}
+  .btn,.seg button{padding:9px 12px;font-size:12.5px}
   .inc{padding-top:14px;padding-bottom:15px}
   .ac{padding:13px 0}
   .keybar input{font-size:16px}
@@ -452,12 +541,20 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
     <button type="button" id="vSitrep" aria-pressed="true">Sitrep</button>
     <button type="button" id="vRadar"  aria-pressed="false">Radar</button>
   </div>
-  <button class="btn" id="btnFires" type="button" aria-pressed="true">Só incêndios</button>
   <button class="btn" id="btnRef" type="button" aria-pressed="false">Posição</button>
   <button class="btn" id="btnCasa" type="button" hidden title="Voltar à posição guardada">Casa</button>
-  <button class="btn" id="btnTheme" type="button">Modo dia</button>
-  <button class="btn" id="btnKey" type="button">Chave</button>
-  <button class="btn" id="btnRefresh" type="button">Atualizar</button>
+  <button class="btn only-wide" id="btnFires" type="button" aria-pressed="true">Só incêndios</button>
+  <button class="btn only-wide" id="btnTheme" type="button">Modo dia</button>
+  <button class="btn only-wide" id="btnKey" type="button">Chave</button>
+  <button class="btn only-wide" id="btnRefresh" type="button">Atualizar</button>
+  <button class="btn only-narrow" id="btnMais" type="button" aria-expanded="false" aria-label="Mais opções">···</button>
+</div>
+
+<div class="maisbar" id="maisBar" hidden>
+  <button class="btn" id="btnFires2" type="button" aria-pressed="true">Só incêndios</button>
+  <button class="btn" id="btnTheme2" type="button">Modo dia</button>
+  <button class="btn" id="btnKey2" type="button">Chave</button>
+  <button class="btn" id="btnRefresh2" type="button">Atualizar</button>
 </div>
 
 <div class="keybar" id="posBar" hidden>
@@ -503,6 +600,12 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
     </section>
 
     <section class="pane">
+      <div class="pane-head"><h2>Risco e avisos</h2><span class="count" id="cRisco">—</span></div>
+      <p class="pane-note">Índice de risco de incêndio e avisos meteorológicos do IPMA</p>
+      <div class="pane-body" id="riscoBody"><div class="state">A carregar…</div></div>
+    </section>
+
+    <section class="pane">
       <div class="pane-head"><h2>Vento e propagação</h2><span class="count" id="cWind">—</span></div>
       <div class="pane-body" id="windBody"><div class="state">A carregar…</div></div>
     </section>
@@ -529,7 +632,8 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
     Vias: derivadas das naturezas do PROCIV (4305 limpeza de via, 3301 queda de árvore,
     3313 movimento de massa, 3321 cabos). Não é um registo de estradas cortadas — a ANEPC não publica um.
     Ausência de marcador nunca significa via livre.<br>
-    Meteorologia: Open-Meteo. O painel mostra o vento na tua posição; as setas no mapa usam o vento pedido em cada incêndio, que a 30 km pode ser de outro quadrante. Seta laranja = vento medido ali; seta cinzenta = sem leitura própria, a usar o da tua posição. Vento a 10 m, não corrigido para orografia — em vale encaixado a direção real pode divergir muito.<br>
+    Risco e avisos: IPMA, API aberta — RCM (escala 1 a 5, por concelho) e avisos meteorologicos por distrito. O risco e previsao de perigo, nao deteccao: diz se hoje e dia de estar atento, mesmo sem fogo nenhum.<br>
+  Meteorologia: Open-Meteo. O painel mostra o vento na tua posição; as setas no mapa usam o vento pedido em cada incêndio, que a 30 km pode ser de outro quadrante. Seta laranja = vento medido ali; seta cinzenta = sem leitura própria, a usar o da tua posição. Vento a 10 m, não corrigido para orografia — em vale encaixado a direção real pode divergir muito.<br>
     Focos e área ardida: EFFIS/Copernicus — ~2 passagens/dia; a área ardida MODIS só deteta acima de ~40 ha.<br>
     Potência radiativa e risco: LSA-SAF/IPMA (MSG/SEVIRI) — 15 em 15 min, pixel de ~3 km.<br>
     Aeronaves: redes ADS-B comunitárias — só quem transmite e é recebido; cobertura em vale é fraca.<br>
@@ -561,11 +665,17 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
   </div>
 
   <div class="hud bl">
-    <div class="tbl">
-      <div class="tbl-h">
-        <span>Indicativo</span><span>Tipo</span><span class="n">Alt</span><span class="n">Vel</span><span class="n">AGL</span>
+    <div class="tbl" id="rTbl">
+      <button class="tbl-pega" id="rPega" type="button" aria-expanded="true">
+        <span class="pega-txt" id="rPegaTxt">Contactos</span>
+        <span class="pega-ico" aria-hidden="true">▾</span>
+      </button>
+      <div id="rCorpo">
+        <div class="tbl-h">
+          <span>Indicativo</span><span>Tipo</span><span class="n">Alt</span><span class="n">Vel</span><span class="n">AGL</span>
+        </div>
+        <div id="rRows"><div class="empty">A contactar rede ADS-B…</div></div>
       </div>
-      <div id="rRows"><div class="empty">A contactar rede ADS-B…</div></div>
     </div>
   </div>
 
@@ -597,7 +707,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-19.7";
+var VERSAO = "2026-09-20.6";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -806,6 +916,20 @@ function fetchVia(url, ms, headers){
     });
 }
 
+/* Instrumentação: sem medir, otimizar é adivinhar. Guarda o tempo de
+   cada fonte para o diagnóstico mostrar onde está realmente o atraso. */
+var tempos = {};
+function cronometrar(nome, promessa){
+  var t0 = Date.now();
+  return promessa.then(function(r){
+    tempos[nome] = Date.now() - t0;
+    return r;
+  }, function(e){
+    tempos[nome] = Date.now() - t0;
+    throw e;
+  });
+}
+
 function showError(el, msg, detail, noteId){
   el.innerHTML = '<div class="state err">'+esc(msg)+
     (detail?'<code>'+esc(detail)+'</code>':'')+'</div>';
@@ -815,16 +939,33 @@ function showError(el, msg, detail, noteId){
 /* ============================================================
    OCORRÊNCIAS — PROCIV + fogos.pt, fundidos pelo número SADO
    ============================================================ */
-function procivURL(lat, lon, rM){
-  var g = encodeURIComponent(JSON.stringify({ x:+lon, y:+lat, spatialReference:{wkid:4326} }));
-  return PROCIV+"?f=geojson&where=1%3D1&outFields=*&outSR=4326&returnGeometry=true"+
-    "&geometry="+g+"&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects"+
-    "&distance="+rM+"&units=esriSRUnit_Meter&orderByFields=ID_oc%20DESC&resultRecordCount=1000";
+/* Três desperdícios que estavam aqui:
+   - outFields=* trazia 36 campos, uso 18
+   - returnGeometry=true duplicava as coordenadas, que já vêm em
+     Latitude/Longitude como campos
+   - a consulta espacial obriga o servidor a trabalho geométrico e faz
+     do URL algo diferente para cada utilizador, logo nunca cacheado
+   O serviço tem ~88 registos no total: filtrar por data chega, e o
+   pedido passa a ser idêntico para toda a gente. */
+var PROCIV_CAMPOS = "Numero,CodEstadoOcorrencia,EstadoOcorrencia,Data,Hora,"+
+  "CodNatureza,Natureza,Concelho,Freguesia,Localidade,SubRegiao,Regiao,"+
+  "Operacionais,MeiosTerrestres,MeiosAereos,OPAereos,QuantEntidades,"+
+  "DuracaoMinutos,FaseIncendio,Latitude,Longitude";
+
+function procivURL(comFiltro){
+  var base = PROCIV+"?f=json&outFields="+encodeURIComponent(PROCIV_CAMPOS)+
+             "&returnGeometry=false&outSR=4326&resultRecordCount=1000";
+  if (!comFiltro) return base + "&where=1%3D1";
+  var desde = isoDay(3);
+  return base + "&where=" + encodeURIComponent("Data >= '"+desde+"'");
 }
 
+/* f=json devolve features com "attributes"; f=geojson com "properties".
+   Aceita-se qualquer um, para o parsing não depender do formato pedido. */
 function fromProciv(gj){
   return ((gj && gj.features) || []).map(function(f){
-    var p = f.properties || {}, c = (f.geometry && f.geometry.coordinates) || [];
+    var p = f.attributes || f.properties || {};
+    var c = (f.geometry && f.geometry.coordinates) || [];
     var nat = String(p.Natureza || ""), m = nat.match(/^(\d+)\s*-\s*(.*)$/);
     return {
       numero: String(p.Numero || p.ID || ""),
@@ -864,20 +1005,42 @@ function isRecent(i){
 }
 
 function loadIncidents(){
-  var pF = fetchVia("https://api.fogos.pt/v2/incidents/active", 11000)
+  var pF = cronometrar("fogos.pt", fetchVia("https://api.fogos.pt/v2/incidents/active", 11000)
     .then(function(r){
       var j=r.data, l=Array.isArray(j)?j:(j.data||j.incidents||[]);
       return { list:cleanCoords(l), err:null };
-    }).catch(function(e){ return { list:null, err:"fogos.pt: "+e.message }; });
+    }).catch(function(e){ return { list:null, err:"fogos.pt: "+e.message }; }));
 
-  var pP = fetchVia(procivURL(REF.lat, REF.lon, 80000), 13000)
-    .then(function(r){ return { list:cleanCoords(fromProciv(r.data)), err:null }; })
-    .catch(function(e){ return { list:null, err:"PROCIV: "+e.message }; });
+  var pP = cronometrar("PROCIV", fetchVia(procivURL(true), 13000)
+    .then(function(r){
+      var l = cleanCoords(fromProciv(r.data));
+      /* se o filtro de data não devolver nada, o campo pode não ser
+         comparável como texto: repete-se sem filtro em vez de mostrar
+         um país sem ocorrências, que seria falso */
+      if (!l.length) return fetchVia(procivURL(false), 13000)
+        .then(function(r2){ return { list:cleanCoords(fromProciv(r2.data)), err:null }; });
+      return { list:l, err:null };
+    })
+    .catch(function(e){ return { list:null, err:"PROCIV: "+e.message }; }));
 
-  return Promise.all([pF,pP]).then(function(r){
-    var fogos=r[0], prociv=r[1];
+  /* Render progressivo: cada fonte pinta assim que chega, em vez de
+     ambas esperarem pela mais lenta. Se o PROCIV responde num segundo
+     e o fogos.pt demora onze a desistir, os dados aparecem ao segundo
+     e enriquecem-se depois. */
+  var chegou = { fogos:null, prociv:null, n:0 };
 
+  function juntar(){
+    var fogos  = chegou.fogos  || { list:null, err:null, pendente: chegou.n < 2 };
+    var prociv = chegou.prociv || { list:null, err:null, pendente: chegou.n < 2 };
+    combinar(fogos, prociv, chegou.n < 2);
+  }
+  pF.then(function(r){ chegou.fogos = r;  chegou.n++; juntar(); });
+  pP.then(function(r){ chegou.prociv = r; chegou.n++; juntar(); });
+  return Promise.all([pF,pP]).then(function(){ return true; });
+
+  function combinar(fogos, prociv, parcial){
     if (!fogos.list && !prociv.list){
+      if (parcial) return;        /* a outra fonte ainda vem a caminho */
       DIAG.incidents = { ok:false, via:"—",
         msg:[fogos.err,prociv.err].filter(Boolean).join("  |  ") };
       renderIncidents(); renderDiag();
@@ -941,13 +1104,134 @@ function loadIncidents(){
     var note = raw+" recebidas, "+incidents.length+" recentes";
     if (cruz) note += " · "+cruz+" nas duas fontes";
     if (roads.length) note += " · "+roads.length+" via(s) afetada(s)";
+    if (parcial) note += " · a aguardar a outra fonte";
     [fogos.err,prociv.err].filter(Boolean).forEach(function(e){ note += "  |  "+e; });
 
-    DIAG.incidents = { ok:true, via:fontes.join(" + ")||"—", msg:note };
+    DIAG.incidents = { ok:true, via:(fontes.join(" + ")||"—")+(parcial?" (parcial)":""), msg:note };
     renderIncidents(); renderRoads(); renderDiag();
     if (radarReady) drawFires();
-    loadFireWinds();          /* vento próprio de cada incêndio */
+    /* o vento por incêndio só depois de a lista estar completa */
+    if (!parcial) loadFireWinds();
+  }
+}
+
+/* ============================================================
+   RISCO DE INCÊNDIO E AVISOS — IPMA, API aberta
+   ------------------------------------------------------------
+   O resto do painel deteta fogo; isto antecipa-o. O RCM é previsão
+   de perigo por concelho, e os avisos dizem se o IPMA já considera
+   as condições anómalas. Ambos sem chave.
+   ============================================================ */
+var IPMA = "https://api.ipma.pt/open-data/forecast/";
+
+var RCM_NIVEL = { 1:"Reduzido", 2:"Moderado", 3:"Elevado", 4:"Muito elevado", 5:"Máximo" };
+var RCM_COR   = { 1:"--green", 2:"--green", 3:"--amber", 4:"--orange", 5:"--red" };
+
+/* os dois primeiros dígitos do código DICO são o distrito; o IPMA usa
+   abreviaturas próprias nas áreas de aviso */
+var DISTRITO_AVISO = {
+  "01":"AVR","02":"BJA","03":"BRG","04":"BGC","05":"CBO","06":"CBR",
+  "07":"EVR","08":"FAR","09":"GDA","10":"LRA","11":"LSB","12":"PTG",
+  "13":"PTO","14":"STM","15":"STB","16":"VCT","17":"VRL","18":"VIS",
+  "31":"MAD","32":"MAD","33":"MAD"
+};
+
+var NIVEL_ORD  = { green:0, yellow:1, orange:2, red:3 };
+var NIVEL_NOME = { green:"verde", yellow:"amarelo", orange:"laranja", red:"vermelho" };
+var NIVEL_COR  = { green:"--green", yellow:"--amber", orange:"--orange", red:"--red" };
+
+var risco = { hoje:null, amanha:null, dico:null, distKm:0, avisos:[] };
+
+function loadRisco(){
+  var pRcm = Promise.all([
+    fetchVia(IPMA+"meteorology/rcm/rcm-d0.json", 12000).catch(function(){ return null; }),
+    fetchVia(IPMA+"meteorology/rcm/rcm-d1.json", 12000).catch(function(){ return null; })
+  ]).then(function(r){
+    var d0 = r[0] && r[0].data, d1 = r[1] && r[1].data;
+    if (!d0) return;
+
+    /* concelho mais próximo: o próprio RCM traz coordenadas, o que
+       dispensa uma tabela de concelhos à parte */
+    var melhor = null, dmin = Infinity;
+    Object.keys(d0).forEach(function(k){
+      var c = d0[k];
+      if (!c || !isFinite(c.latitude) || !isFinite(c.longitude)) return;
+      var dd = hav(REF.lat, REF.lon, c.latitude, c.longitude);
+      if (dd < dmin){ dmin = dd; melhor = k; }
+    });
+    if (!melhor) return;
+
+    risco.dico = melhor;
+    risco.distKm = dmin;
+    risco.hoje = (d0[melhor] && d0[melhor].data) ? d0[melhor].data.rcm : null;
+    risco.amanha = (d1 && d1[melhor] && d1[melhor].data) ? d1[melhor].data.rcm : null;
   });
+
+  var pAv = fetchVia(IPMA+"warnings/warnings_www.json", 12000)
+    .then(function(r){
+      var lista = Array.isArray(r.data) ? r.data : [];
+      var agora = Date.now();
+      risco.avisos = lista.filter(function(a){
+        if (!a || (a.awarenessLevelID||"green") === "green") return false;
+        var fim = Date.parse(a.endTime);
+        return !isFinite(fim) || fim > agora;     /* expirados não contam */
+      });
+    })
+    .catch(function(){ risco.avisos = []; });
+
+  return Promise.all([pRcm, pAv]).then(renderRisco);
+}
+
+function renderRisco(){
+  if (view !== "sitrep") return;
+  var el = $("riscoBody");
+  var area = risco.dico ? DISTRITO_AVISO[String(risco.dico).slice(0,2)] : null;
+  var meus = risco.avisos.filter(function(a){ return !area || a.idAreaAviso === area; });
+
+  $("cRisco").textContent = risco.hoje
+    ? String(risco.hoje) + (meus.length ? " · "+meus.length+" aviso(s)" : "")
+    : (meus.length ? meus.length+" aviso(s)" : "—");
+
+  if (!risco.hoje && !meus.length){
+    el.innerHTML = '<div class="state">Sem índice de risco nem avisos para esta zona. '+
+      'O IPMA cobre apenas o território nacional.</div>';
+    return;
+  }
+
+  var html = "";
+
+  if (risco.hoje){
+    var cor = cssVar(RCM_COR[risco.hoje] || "--ink-mute");
+    html += '<div class="risco-box" style="border-left-color:'+cor+'">'+
+      '<div class="lblm">Risco de incêndio · hoje</div>'+
+      '<div class="risco-val" style="color:'+cor+'">'+risco.hoje+' · '+
+        esc(RCM_NIVEL[risco.hoje]||"?")+'</div>'+
+      (risco.amanha ? '<div class="risco-sub">amanhã: '+risco.amanha+' · '+
+        esc(RCM_NIVEL[risco.amanha]||"?")+'</div>' : '')+
+      '<div class="risco-sub">concelho a '+risco.distKm.toFixed(0)+' km · escala IPMA 1 a 5</div>'+
+    '</div>';
+  }
+
+  if (meus.length){
+    meus.slice().sort(function(a,b){
+      return (NIVEL_ORD[b.awarenessLevelID]||0)-(NIVEL_ORD[a.awarenessLevelID]||0);
+    }).slice(0,6).forEach(function(a){
+      var c = cssVar(NIVEL_COR[a.awarenessLevelID] || "--ink-mute");
+      var fim = a.endTime ? String(a.endTime).replace("T"," ").slice(5,16) : "";
+      html += '<div class="risco-box" style="border-left-color:'+c+'">'+
+        '<div class="lblm">Aviso '+esc(NIVEL_NOME[a.awarenessLevelID]||"")+'</div>'+
+        '<div class="risco-val" style="color:'+c+';font-size:17px">'+
+          esc(a.awarenessTypeName||"—")+'</div>'+
+        (fim ? '<div class="risco-sub">até '+esc(fim)+'</div>' : '')+
+        (a.text ? '<div class="risco-sub">'+esc(a.text)+'</div>' : '')+
+      '</div>';
+    });
+  } else if (risco.hoje){
+    html += '<p class="pane-note" style="padding-left:0;padding-right:0">'+
+      'Sem avisos meteorológicos ativos para este distrito.</p>';
+  }
+
+  el.innerHTML = html;
 }
 
 /* ============================================================
@@ -1139,7 +1423,14 @@ function loadAircraft(){
     var h = s.h ? s.h() : null;
     if (s.paid) adsbCalls++;
 
-    return fetchVia(u, rede.timeout, h).then(function(r){
+    /* Timeout curto na primeira fonte e a crescer nas seguintes: esperar
+       o limite inteiro em cada uma dava, no pior caso, quatro esperas
+       somadas antes de qualquer resposta. Na retentativa dá-se o limite
+       cheio, porque aí já se sabe que a fonte estava a responder devagar. */
+    var to = retentativa ? rede.timeout
+                         : Math.round(rede.timeout * (i === 0 ? 0.55 : 0.75));
+
+    return cronometrar("ADS-B", fetchVia(u, to, h)).then(function(r){
       adsbStick = s.n; adsbFails = 0; acUltimaLeitura = Date.now();
       var list = s.f === "opensky" ? fromOpenSky(r.data.states, r.data.time)
                                    : (r.data.ac || r.data.aircraft || []);
@@ -2049,6 +2340,8 @@ function renderAircraft(){
   } else if (radarReady){
     Object.keys(marksR).forEach(function(k){ marksR[k].alive = false; });
     $("rNac").textContent = String(acs.length);
+    if ($("rPegaTxt")) $("rPegaTxt").textContent = "Contactos · "+acs.length+
+      (nFire ? " · "+nFire+" combate" : "");
     $("rNfire").textContent = String(nFire);
     $("rSrc").textContent = acSource+" · "+ADSB_RADIUS_NM+" NM · posições com "+med+" s";
 
@@ -2058,7 +2351,11 @@ function renderAircraft(){
       var id=(a.flight||"").trim()||a.r||key;
       var fl=a.alt_baro==="ground"?"SOLO":String(Math.round(num(a.alt_baro)/100)).padStart(3,"0");
       var col = x.fire ? cssVar("--ac-fire") : cssVar("--ac-gen");
-      var txt = esc(id)+"<br>"+fl+"  "+Math.round(num(a.gs));
+      /* Todas as aeronaves levam etiqueta. Em ecrã estreito fica só o
+         indicativo: nível e velocidade estão na tabela, que é onde se
+         comparam, e duas linhas por contacto enchiam o mapa. */
+      var estreito = window.innerWidth <= 760;
+      var txt = estreito ? esc(id) : esc(id)+"<br>"+fl+"  "+Math.round(num(a.gs));
 
       if (idx < 22){
         var tk = tracks[key], ag = "—";
@@ -2196,6 +2493,17 @@ function renderDiag(){
       '<span class="dot '+(DIAG_SAF.ok?"ok":"bad")+'"></span><span class="nm">LSA-SAF</span>'+
       '<span class="via">IPMA · 15 min</span></div><div class="msg">'+esc(DIAG_SAF.msg)+'</div></div>';
   }
+  var tk = Object.keys(tempos);
+  if (tk.length){
+    var pior = tk.reduce(function(a,b){ return tempos[a] > tempos[b] ? a : b; });
+    html += '<div class="dg '+(tempos[pior] > 6000 ? "bad" : "")+'">'+
+      '<div class="dg-top"><span class="dot '+(tempos[pior] > 6000 ? "bad" : "ok")+'"></span>'+
+      '<span class="nm">Tempos</span><span class="via">'+esc(pior)+' é o lento</span></div>'+
+      '<div class="msg">'+esc(tk.sort().map(function(k){
+        return k+" "+(tempos[k]/1000).toFixed(1)+" s";
+      }).join(" · "))+'</div></div>';
+  }
+
   var rq = qualidadeRede();
   html += '<div class="dg"><div class="dg-top"><span class="dot '+
     (rq.cadencia > AC_MS ? "" : "ok")+'"></span>'+
@@ -2222,8 +2530,12 @@ function renderDiag(){
 /* ============================================================
    VISTA, TEMA, POSIÇÃO, CICLOS
    ============================================================ */
+var vistaIniciada = false;
+
 function setView(v){
-  view = v;
+  /* clicar na vista já ativa não deve custar um redesenho completo */
+  if (v === view && vistaIniciada) return;
+  view = v; vistaIniciada = true;
   $("viewSitrep").hidden = v !== "sitrep";
   $("viewRadar").hidden  = v !== "radar";
   $("vSitrep").setAttribute("aria-pressed", v==="sitrep"?"true":"false");
@@ -2238,7 +2550,7 @@ function setView(v){
     setTimeout(function(){ mapS.invalidateSize(); }, 30);
   }
   /* a vista que estava escondida não foi desenhada enquanto esteve fora */
-  renderIncidents(); renderRoads(); renderWeather();
+  renderIncidents(); renderRoads(); renderWeather(); renderRisco();
   renderAircraft(); renderDrops(); renderDiag();
 }
 
@@ -2309,7 +2621,10 @@ function setRef(lat, lon, name){
   if (radarReady) drawRings();
   /* o PROCIV é consultado por geometria centrada em REF: sem recarregar,
      o raio ficaria no ponto antigo e as distâncias no novo */
-  loadIncidents(); loadWeather(); loadAircraft();
+  /* as ocorrencias ja nao dependem da posicao no pedido: basta
+     reordenar o que esta em memoria */
+  renderIncidents(); renderRoads();
+  loadWeather(); loadAircraft(); loadRisco();
 }
 
 /* ---------- posição: guardar, voltar, escolher ----------
@@ -2407,6 +2722,7 @@ $("btnTheme").addEventListener("click", function(){
   theme = theme==="dia" ? "escuro" : "dia";
   try { localStorage.setItem("sitrep_tema", theme); } catch(e){}
   aplicaTema();
+  sincronizaMais();
 });
 $("btnFires").addEventListener("click", function(){
   onlyFires = !onlyFires;
@@ -2414,6 +2730,7 @@ $("btnFires").addEventListener("click", function(){
   this.textContent = onlyFires ? "Só incêndios" : "Todas";
   renderIncidents();
   if (radarReady) drawFires();
+  sincronizaMais();
 });
 
 /* ---------- chave do ADSBx ---------- */
@@ -2437,7 +2754,37 @@ $("keyClear").addEventListener("click", function(){
   try { localStorage.removeItem("sitrep_adsbx_key"); } catch(e){}
   adsbCalls = 0; syncKeyUI(); loadAircraft();
 });
-$("btnRefresh").addEventListener("click", refreshAll);
+/* o botão é pedido explícito: ignora a proteção contra repetição */
+$("btnRefresh").addEventListener("click", function(){ refreshAll(true); });
+
+/* ---------- barra compacta em ecrã estreito ---------- */
+$("btnMais").addEventListener("click", function(){
+  var b = $("maisBar");
+  b.hidden = !b.hidden;
+  this.setAttribute("aria-expanded", b.hidden ? "false" : "true");
+});
+/* os duplicados do menu accionam os originais, para não duplicar lógica */
+[["btnFires2","btnFires"],["btnTheme2","btnTheme"],
+ ["btnKey2","btnKey"],["btnRefresh2","btnRefresh"]].forEach(function(par){
+  $(par[0]).addEventListener("click", function(){
+    $(par[1]).click();
+    if (par[0] !== "btnKey2") $("maisBar").hidden = true;
+    sincronizaMais();
+  });
+});
+function sincronizaMais(){
+  $("btnFires2").textContent = $("btnFires").textContent;
+  $("btnFires2").setAttribute("aria-pressed", $("btnFires").getAttribute("aria-pressed"));
+  $("btnTheme2").textContent = $("btnTheme").textContent;
+  $("btnKey2").textContent = $("btnKey").textContent;
+}
+
+/* ---------- tabela de contactos colapsável ---------- */
+$("rPega").addEventListener("click", function(){
+  var t = $("rTbl");
+  t.classList.toggle("fechada");
+  this.setAttribute("aria-expanded", t.classList.contains("fechada") ? "false" : "true");
+});
 
 /* ---------- relógio e ciclos ---------- */
 function tickClock(){
@@ -2448,9 +2795,15 @@ function tickClock(){
 }
 tickClock(); setInterval(tickClock, 1000);
 
-function refreshAll(){
+var ultimoRefresh = 0;
+
+function refreshAll(forcar){
+  /* Voltar à janela não é razão para refazer tudo: se os dados têm
+     segundos, refazê-los só gasta rede e faz o painel piscar. */
+  if (!forcar && Date.now() - ultimoRefresh < 25000) return;
+  ultimoRefresh = Date.now();
   DIAG.incidents.ok = null; DIAG.aircraft.ok = null;
-  renderDiag(); loadIncidents(); loadAircraft(); loadWeather();
+  renderDiag(); loadIncidents(); loadAircraft(); loadWeather(); loadRisco();
 }
 
 var pendingResume = [];
@@ -2523,6 +2876,7 @@ schedule(loadAircraft, AC_MS, function(b){
 });
 schedule(loadIncidents, INC_MS, function(b){ return usingProxy() ? Math.max(b,120000) : b; });
 schedule(loadWeather, WX_MS);
+schedule(loadRisco, 30*60*1000);
 
 /* Se há casa guardada, é ela que manda: arranca de imediato, sem
    esperar pelo GPS nem sobrepor-se à escolha. Sem casa, tenta a
