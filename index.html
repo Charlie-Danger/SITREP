@@ -415,11 +415,14 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 
 .tbl{pointer-events:auto;overflow-y:auto;background:var(--hud);
      border:1px solid var(--rule-hi);min-width:330px;max-width:min(430px,46vw)}
-.tbl-h{display:grid;grid-template-columns:78px 1fr 52px 44px 40px;gap:7px;padding:6px 11px;
+.tbl-h{display:grid;grid-template-columns:78px 1fr 52px 52px 44px 40px;gap:7px;padding:6px 11px;
        border-bottom:1px solid var(--rule-hi);font-family:var(--f-cond);font-size:10px;
        font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute);
        position:sticky;top:0;background:var(--hud)}
-.row{display:grid;grid-template-columns:78px 1fr 52px 44px 40px;gap:7px;padding:5px 11px;
+.tbl-h span.srt{cursor:pointer;user-select:none}
+.tbl-h span.srt:hover{color:var(--ink-mid)}
+.tbl-h span.srt.on{color:var(--drop)}
+.row{display:grid;grid-template-columns:78px 1fr 52px 52px 44px 40px;gap:7px;padding:5px 11px;
      border-bottom:1px solid var(--rule);font-family:var(--f-mono);font-size:11.5px;
      font-variant-numeric:tabular-nums;cursor:pointer;color:var(--ac-gen)}
 .row:last-child{border-bottom:none}
@@ -510,7 +513,8 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
   .tbl{min-width:0;max-width:100%}
   .tbl-h,.row{grid-template-columns:76px 1fr 54px 44px;gap:6px}
   .row{padding:9px 11px;font-size:12.5px}
-  .tbl-h span:nth-child(5),.row span:nth-child(5){display:none}
+  .tbl-h span:nth-child(3),.row span:nth-child(3),
+  .tbl-h span:nth-child(6),.row span:nth-child(6){display:none}
   .hud.br{display:none}
   .leaflet-control-zoom{display:none}   /* a pinça chega e liberta ecrã */
 }
@@ -704,7 +708,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       </button>
       <div id="rCorpo">
         <div class="tbl-h">
-          <span>Indicativo</span><span>Tipo</span><span class="n">Alt</span><span class="n">Vel</span><span class="n">AGL</span>
+          <span>Indicativo</span><span>Tipo</span><span class="n srt" id="rSrtDist" data-k="dist">Dist</span><span class="n srt" id="rSrtAlt" data-k="alt">Alt</span><span class="n">Vel</span><span class="n">AGL</span>
         </div>
         <div id="rRows"><div class="empty">A contactar rede ADS-B…</div></div>
       </div>
@@ -739,7 +743,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.16";
+var VERSAO = "2026-09-20.17";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -930,6 +934,10 @@ var DIAG = { incidents:{ok:null,via:"—",msg:""}, weather:{ok:null,via:"—",ms
 var DIAG_SAF = { ok:null, msg:"" };
 var photoCache = {};
 var radarReady = false;
+/* ordenação da tabela "Contactos" no radar — local a esta vista, nunca
+   toca na ordem de `acs` partilhada com o painel SITREP (combate primeiro,
+   depois distância). null = ordem partilhada, tal como sempre foi. */
+var rSort = { by:null, dir:1 };
 
 try { theme = localStorage.getItem("sitrep_tema") === "dia" ? "dia" : "escuro"; } catch(e){}
 try { adsbKey = localStorage.getItem("sitrep_adsbx_key") || ""; } catch(e){}
@@ -2748,8 +2756,28 @@ function renderAircraft(){
     $("rNfire").textContent = String(nFire);
     $("rSrc").textContent = acSource+" · "+ADSB_RADIUS_NM+" NM · posições com "+med+" s";
 
+    [["rSrtDist","dist"],["rSrtAlt","alt"]].forEach(function(p){
+      var el = $(p[0]); if (!el) return;
+      var ativo = rSort.by === p[1];
+      el.classList.toggle("on", ativo);
+      el.textContent = (p[1]==="dist"?"Dist":"Alt") + (ativo ? (rSort.dir>0?" ▲":" ▼") : "");
+    });
+
+    var listaR = acs.slice();
+    if (rSort.by === "dist"){
+      listaR.sort(function(p,q){ return (p.dist-q.dist)*rSort.dir; });
+    } else if (rSort.by === "alt"){
+      listaR.sort(function(p,q){
+        var pa = p.a.alt_baro==="ground" ? -1 : num(p.a.alt_baro);
+        var qa = q.a.alt_baro==="ground" ? -1 : num(q.a.alt_baro);
+        if (!isFinite(pa)) pa = -1;
+        if (!isFinite(qa)) qa = -1;
+        return (pa-qa)*rSort.dir;
+      });
+    }
+
     var rows = "";
-    acs.forEach(function(x, idx){
+    listaR.forEach(function(x, idx){
       var a=x.a, key=a.hex||a.r||(a.flight||"").trim(); if (!key) return;
       var id=(a.flight||"").trim()||a.r||key;
       var fl=a.alt_baro==="ground"?"SOLO":String(Math.round(num(a.alt_baro)/100)).padStart(3,"0");
@@ -2769,6 +2797,7 @@ function renderAircraft(){
         rows += '<div class="row'+(x.fire?" fire":"")+(num(a.seen_pos)>25?" stale":"")+
           '" data-lat="'+a.lat+'" data-lng="'+a.lon+'">'+
           '<span class="cs">'+esc(id)+'</span><span class="ty">'+esc(x.label)+'</span>'+
+          '<span class="n">'+x.dist.toFixed(0)+'</span>'+
           '<span class="n">'+(a.alt_baro==="ground"?"solo":Math.round(num(a.alt_baro)).toLocaleString("pt-PT"))+'</span>'+
           '<span class="n">'+Math.round(num(a.gs))+'</span><span class="n">'+ag+'</span></div>';
       }
@@ -3316,6 +3345,17 @@ $("rPega").addEventListener("click", function(){
   var t = $("rTbl");
   t.classList.toggle("fechada");
   this.setAttribute("aria-expanded", t.classList.contains("fechada") ? "false" : "true");
+});
+
+/* ---------- ordenar a tabela de contactos: distância ao ponto ou altitude ---------- */
+["rSrtDist","rSrtAlt"].forEach(function(id){
+  var el = $(id); if (!el) return;
+  el.addEventListener("click", function(){
+    var k = this.getAttribute("data-k");
+    rSort.dir = (rSort.by === k) ? -rSort.dir : 1;
+    rSort.by = k;
+    if (radarReady) renderAircraft();
+  });
 });
 
 /* ---------- relógio e ciclos ---------- */
