@@ -707,7 +707,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.6";
+var VERSAO = "2026-09-20.7";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1388,8 +1388,63 @@ function loadAircraft(){
 
   var rede = qualidadeRede();
 
-  function go(i, retentativa){
-    if (i >= chain.length){
+  /* ------------------------------------------------------------
+     Corrida com lançamento escalonado (hedged request).
+     A cascata sequencial somava a espera de cada fonte antes de
+     experimentar a seguinte. Aqui lança-se a preferida e, se ela
+     não responder dentro de HEDGE, lança-se a seguinte em paralelo
+     — ganha a que chegar primeiro. Se a preferida for rápida, as
+     outras nunca chegam a ser pedidas, por isso não há pedidos a
+     mais no caso normal.
+     ------------------------------------------------------------ */
+  var HEDGE = rede.nome === "boa" || rede.nome === "4g" ? 2200 : 4000;
+
+  return new Promise(function(resolve, reject){
+    var ganhou = false, lancadas = 0, falhadas = 0, timers = [];
+
+    function limpar(){ timers.forEach(clearTimeout); timers = []; }
+
+    function lancar(){
+      if (ganhou || lancadas >= chain.length) return;
+      var s = chain[lancadas++];
+      var u = s.u(REF.lat.toFixed(4), REF.lon.toFixed(4), ADSB_RADIUS_NM);
+      var h = s.h ? s.h() : null;
+      if (s.paid) adsbCalls++;
+
+      cronometrar("ADS-B", fetchVia(u, rede.timeout, h))
+        .then(function(r){
+          if (ganhou) return;                /* outra chegou primeiro */
+          ganhou = true; limpar();
+          adsbStick = s.n; adsbFails = 0; acUltimaLeitura = Date.now();
+          var list = s.f === "opensky" ? fromOpenSky(r.data.states, r.data.time)
+                                       : (r.data.ac || r.data.aircraft || []);
+          DIAG.aircraft = { ok:true, via:s.n+" / "+r.via,
+            msg:(s.paid ? adsbCalls+" pedidos pagos nesta sessão · " : "")+
+                (lancadas > 1 ? lancadas+" fontes em corrida" : "resposta à primeira") };
+          ingestAircraft(list, s.n, r.via, s.f);
+          renderDiag();
+          resolve();
+        })
+        .catch(function(e){
+          var m = (e && e.message) ? e.message : "?";
+          if (/\b429\b/.test(m)) adsbRL = Date.now();
+          errs.push(s.n+": "+((e && e.name === "AbortError") ? "sem resposta a tempo" : m));
+          falhadas++;
+          if (ganhou) return;
+          lancar();                          /* falhou: a seguinte já */
+          if (falhadas >= chain.length && !ganhou){ limpar(); reject(); }
+        });
+
+      /* a seguinte entra em paralelo se esta demorar */
+      if (lancadas < chain.length){
+        timers.push(setTimeout(function(){ if (!ganhou) lancar(); }, HEDGE));
+      }
+    }
+
+    lancar();
+  }).catch(function(){ semRede(); });
+
+  function semRede(){
       adsbFails++;
       if (adsbFails >= 2) adsbStick = null;
       var idade = acUltimaLeitura ? Math.round((Date.now()-acUltimaLeitura)/1000) : null;
@@ -1418,41 +1473,6 @@ function loadAircraft(){
       renderDiag();
       return;
     }
-    var s = chain[i];
-    var u = s.u(REF.lat.toFixed(4), REF.lon.toFixed(4), ADSB_RADIUS_NM);
-    var h = s.h ? s.h() : null;
-    if (s.paid) adsbCalls++;
-
-    /* Timeout curto na primeira fonte e a crescer nas seguintes: esperar
-       o limite inteiro em cada uma dava, no pior caso, quatro esperas
-       somadas antes de qualquer resposta. Na retentativa dá-se o limite
-       cheio, porque aí já se sabe que a fonte estava a responder devagar. */
-    var to = retentativa ? rede.timeout
-                         : Math.round(rede.timeout * (i === 0 ? 0.55 : 0.75));
-
-    return cronometrar("ADS-B", fetchVia(u, to, h)).then(function(r){
-      adsbStick = s.n; adsbFails = 0; acUltimaLeitura = Date.now();
-      var list = s.f === "opensky" ? fromOpenSky(r.data.states, r.data.time)
-                                   : (r.data.ac || r.data.aircraft || []);
-      DIAG.aircraft = { ok:true, via:s.n+" / "+r.via,
-        msg: s.paid ? (adsbCalls+" pedidos pagos nesta sessão") : "" };
-      ingestAircraft(list, s.n, r.via, s.f);
-      renderDiag();
-    }).catch(function(e){
-      var m = (e && e.message) ? e.message : "?";
-      var abortou = (e && e.name === "AbortError") || /abort/i.test(m);
-      if (/\b429\b/.test(m)) adsbRL = Date.now();
-
-      /* um timeout em rede móvel não quer dizer que a fonte está em baixo:
-         dá-se-lhe uma segunda oportunidade antes de saltar para a seguinte */
-      if (abortou && !retentativa){
-        return go(i, true);
-      }
-      errs.push(s.n+": "+(abortou ? "sem resposta a tempo" : m));
-      return go(i+1);
-    });
-  }
-  return go(0, false);
 }
 
 function classify(a){
