@@ -382,6 +382,14 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
          margin-top:3px;line-height:1.5;word-break:break-word}
 .dg.bad .msg{color:var(--orange)}
 
+/* tira de batimento: uma marca por tentativa de ADS-B, mais recente à
+   direita — mostra de relance o padrão de ativo/parado ao longo do
+   tempo, em vez de só o estado deste instante */
+.hb{display:flex;align-items:flex-end;gap:1px;height:14px;margin-top:5px}
+.hb i{flex:1 1 auto;min-width:2px;height:100%;background:var(--green);
+      opacity:.85;border-radius:1px}
+.hb i.bad{background:var(--red)}
+
 .foot{padding:16px var(--gut) calc(26px + env(safe-area-inset-bottom,0px));
       font-family:var(--f-mono);font-size:11px;line-height:1.75;color:var(--ink-mute)}
 .foot strong{font-family:var(--f-cond);font-size:12px;letter-spacing:.14em;
@@ -721,7 +729,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.14";
+var VERSAO = "2026-09-20.15";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -852,6 +860,30 @@ var tracks = {}, drops = [], lacunas = [], elevCache = {}, elevBusy = false;
 var fireEpoch = 0, hasMeios = true;
 var adsbKey = "", adsbCalls = 0, adsbStick = null, adsbFails = 0, adsbRL = 0;
 var acUltimaLeitura = 0;     /* quando os dados em mão foram obtidos */
+
+/* Registo de cada tentativa de ADS-B (sucesso ou falha), para responder
+   com dados reais a "quanto tempo esteve mesmo ativo, quanto tempo
+   parado" em vez de impressão. Capado para não crescer sem fim numa
+   sessão longa; ~300 entradas cobrem várias horas mesmo em recuo lento. */
+var adsbLog = [];
+function logADS(ok){
+  adsbLog.push({ t:Date.now(), ok:ok });
+  if (adsbLog.length > 300) adsbLog.shift();
+}
+/* agrupa o registo em períodos contínuos de ativo/parado */
+function adsbPeriodos(){
+  var per = [], cur = null;
+  adsbLog.forEach(function(e){
+    if (!cur || cur.ok !== e.ok){ cur = { ok:e.ok, ini:e.t, fim:e.t }; per.push(cur); }
+    else cur.fim = e.t;
+  });
+  return per;
+}
+function durS(ms){
+  var s = Math.max(0, Math.round(ms/1000)), m = Math.floor(s/60);
+  s = s % 60;
+  return m ? (m+"m"+(s?" "+s+"s":"")) : (s+"s");
+}
 
 /* Em rede móvel a latência sobe e os pedidos caem a meio. Um timeout
    fixo de 11 s dá falsos negativos em 3G, e a cadência de 10 s é
@@ -1451,6 +1483,7 @@ function adsbxSource(){
 function loadAircraft(){
   if (adsbRL && Date.now()-adsbRL < 60000){
     DIAG.aircraft = { ok:false, via:"—", msg:"limite de pedidos atingido · a aguardar" };
+    logADS(false);
     renderDiag();
     return Promise.resolve();
   }
@@ -1491,6 +1524,7 @@ function loadAircraft(){
       fechado = true; limpar();
       tempos["ADS-B"] = Date.now() - t0;
       adsbStick = bons[0].nome; adsbFails = 0; acUltimaLeitura = Date.now();
+      logADS(true);
 
       var lista = bons.length === 1 ? bons[0].list
                                     : unirAc(bons.map(function(b){ return b.list; }));
@@ -1572,6 +1606,7 @@ function loadAircraft(){
 
   function semRede(){
       adsbFails++;
+      logADS(false);
       if (adsbFails >= 2) adsbStick = null;
       var idade = acUltimaLeitura ? Math.round((Date.now()-acUltimaLeitura)/1000) : null;
 
@@ -2899,6 +2934,26 @@ function renderDiag(){
     '<span class="nm">Rede</span><span class="via">'+esc(modeTxt)+'</span></div>'+
     '<div class="msg">'+esc(lines.join(" · "))+
     (usingProxy()?'<br>'+(proxyProprio===PROXY_PADRAO?'Proxy próprio (por omissão do projeto) ativo.':'Proxy próprio configurado.'):'')+'</div></div>';
+
+  if (adsbLog.length){
+    var periodos = adsbPeriodos(), agora = Date.now();
+    var ultimos = periodos.slice(-6).reverse();
+    var linhas = ultimos.map(function(p, idx){
+      var fim = idx === 0 ? agora : p.fim;
+      var hi = new Date(p.ini).toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"});
+      return (p.ok?"ativo":"parado")+" desde "+hi+" · "+durS(fim-p.ini)+(idx===0?" (agora)":"");
+    });
+    var tira = adsbLog.slice(-80).map(function(e){
+      return '<i class="'+(e.ok?"":"bad")+'"></i>';
+    }).join("");
+    var atual = ultimos[0];
+    html += '<div class="dg '+(atual && !atual.ok ? "bad" : "")+'"><div class="dg-top">'+
+      '<span class="dot '+(atual && atual.ok ? "ok" : "bad")+'"></span>'+
+      '<span class="nm">Histórico ADS-B</span>'+
+      '<span class="via">'+(atual?(atual.ok?"ativo":"parado")+" há "+durS(agora-atual.ini):"—")+'</span></div>'+
+      '<div class="hb">'+tira+'</div>'+
+      '<div class="msg">'+esc(linhas.join(" · "))+'</div></div>';
+  }
 
   if (DIAG_SAF.ok !== null){
     html += '<div class="dg '+(DIAG_SAF.ok?"":"bad")+'"><div class="dg-top">'+
