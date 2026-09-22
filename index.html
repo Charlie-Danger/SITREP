@@ -845,7 +845,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.29";
+var VERSAO = "2026-09-20.31";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1030,8 +1030,8 @@ function posterNome(x){
    nunca um adjetivo vago. Não afeta o nome mostrado nem a chave da
    cache; só o que se manda ao Worker para compor o prompt. */
 var POSTER_FORMAS = {
-  F900:"a trijet business jet with three engines: two mounted on the rear fuselage and one at the base of the T-tail",
-  FA7X:"a trijet business jet with three engines: two mounted on the rear fuselage and one at the base of the T-tail",
+  F900:"a TRIJET with exactly THREE (3) engines, not two — two engines mounted on the rear fuselage sides plus a third engine centred at the base of a T-tail, this third tail-mounted engine is essential and must be visible",
+  FA7X:"a TRIJET with exactly THREE (3) engines, not two — two engines mounted on the rear fuselage sides plus a third engine centred at the base of a T-tail, this third tail-mounted engine is essential and must be visible",
   C172:"a high-wing single-engine light aircraft with a strut-braced wing and fixed tricycle landing gear",
   C152:"a high-wing single-engine light aircraft with a strut-braced wing and fixed tricycle landing gear",
   C182:"a high-wing single-engine light aircraft with a strut-braced wing and fixed tricycle landing gear",
@@ -1213,7 +1213,10 @@ function cssVar(n){
 }
 
 /* ---------- rede ---------- */
-function fetchJSON(url, ms, headers){
+/* tipo="texto" para respostas que não são JSON (XML do WMS
+   GetCapabilities, texto plano do GetFeatureInfo) — omitido, continua
+   json como sempre, todas as outras chamadas ficam iguais. */
+function fetchJSON(url, ms, headers, tipo){
   var c = new AbortController();
   var t = setTimeout(function(){ c.abort(); }, ms || 12000);
   var o = { signal:c.signal, cache:"no-store" };
@@ -1221,7 +1224,7 @@ function fetchJSON(url, ms, headers){
   return fetch(url, o).then(function(r){
     clearTimeout(t);
     if (!r.ok) throw new Error("HTTP "+r.status);
-    return r.json();
+    return tipo === "texto" ? r.text() : r.json();
   }).catch(function(e){ clearTimeout(t); throw e; });
 }
 
@@ -1242,7 +1245,7 @@ function usingProxy(){ return netMode.direct === false || netMode.direct === "mi
 /* Quem decide o CORS é cada servidor, não o browser: o modo é
    memorizado por host, senão um host recusado empurrava para os
    proxies outros que funcionam bem em direto. */
-function fetchVia(url, ms, headers){
+function fetchVia(url, ms, headers, tipo){
   var to = ms || 12000, host = hostOf(url);
   if (!netHost[host]) netHost[host] = { direct:null };
 
@@ -1277,17 +1280,17 @@ function fetchVia(url, ms, headers){
       if (i >= order.length){ netMode.proxy = null; throw new Error("proxies indisponíveis"); }
       var p = order[i++];
       var tp = ehProprio(p.name) ? Math.max(toP, Math.min(to, 9000)) : toP;
-      return fetchJSON(p.wrap(url), tp)
+      return fetchJSON(p.wrap(url), tp, null, tipo)
         .then(function(d){ netMode.proxy = p.name; return { data:d, via:p.name }; })
         .catch(next);
     }
     return next();
   }
 
-  if (headers) return fetchJSON(url, to, headers).then(function(d){ return {data:d,via:"direto"}; });
+  if (headers) return fetchJSON(url, to, headers, tipo).then(function(d){ return {data:d,via:"direto"}; });
   if (netHost[host].direct === false) return viaProxy();
 
-  return fetchJSON(url, to)
+  return fetchJSON(url, to, null, tipo)
     .then(function(d){ netHost[host].direct = true; netSummary(); return {data:d,via:"direto"}; })
     .catch(function(e){
       if (e && e.name === "TypeError"){ netHost[host].direct = false; netSummary(); }
@@ -2098,11 +2101,10 @@ function distFogo(p, fl){
   return p.nf;
 }
 
-/* Fração do tempo observado que está sob amostragem contínua. Sem este
-   número, "nenhuma descarga" é uma frase ininterpretável: não se
-   distingue um céu calmo de um recetor em baixo. */
-function cobertura(tk){
-  var pts = tk.pts;
+/* Fração do tempo observado que está sob amostragem contínua, para uma
+   única sequência de pontos. Partilhada por cobertura() (uma faixa) e
+   coberturaCombate() (agregado, ver abaixo) — só existia duplicada. */
+function janelaCobertura(pts){
   if (!pts || pts.length < 2) return null;
   var span = pts[pts.length-1].t - pts[0].t;
   if (span <= 0) return null;
@@ -2111,19 +2113,28 @@ function cobertura(tk){
     var dt = pts[i].t - pts[i-1].t;
     if (dt <= GAP_FIRME_S*1000) bom += dt;
   }
-  return bom/span;
+  return { bom:bom, span:span };
+}
+/* Fração do tempo observado que está sob amostragem contínua, para uma
+   faixa (track) isolada. Sem este número, "nenhuma descarga" é uma
+   frase ininterpretável: não se distingue um céu calmo de um recetor
+   em baixo. */
+function cobertura(tk){
+  var j = janelaCobertura(tk.pts);
+  return j ? j.bom/j.span : null;
 }
 
+/* O mesmo, mas agregado por tempo (não pela média das frações) sobre
+   todas as faixas de combate — uma faixa longa e bem coberta pesa mais
+   do que uma curta e cheia de falhas, propositadamente. */
 function coberturaCombate(){
   var span = 0, bom = 0;
   Object.keys(tracks).forEach(function(h){
-    var tk = tracks[h], pts = tk.pts;
-    if (!tk.fire || !pts || pts.length < 2) return;
-    span += pts[pts.length-1].t - pts[0].t;
-    for (var i=1; i<pts.length; i++){
-      var dt = pts[i].t - pts[i-1].t;
-      if (dt <= GAP_FIRME_S*1000) bom += dt;
-    }
+    var tk = tracks[h];
+    if (!tk.fire) return;
+    var j = janelaCobertura(tk.pts);
+    if (!j) return;
+    span += j.span; bom += j.bom;
   });
   return span > 0 ? bom/span : null;
 }
@@ -2290,8 +2301,11 @@ refMarker.on("dragend", function(){
    camada de FRP para consultas pontuais mais tarde. */
 function discoverADAGUC(ds, prefix, opts, onLayer){
   var base = ADAGUC+"?dataset="+encodeURIComponent(ds)+"&";
-  return fetch(base+"service=WMS&request=GetCapabilities&version=1.3.0", {cache:"no-store"})
-    .then(function(r){ if (!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
+  /* fetchVia, não fetch() direto: adaguc.lsasvcs.ipma.pt já está na
+     lista de domínios permitidos do worker.js precisamente para isto
+     ter fallback via proxy — só nunca tinha ficado ligado. */
+  return fetchVia(base+"service=WMS&request=GetCapabilities&version=1.3.0", 12000, null, "texto")
+    .then(function(r){ return r.data; })
     .then(function(txt){
       var doc = new DOMParser().parseFromString(txt, "text/xml");
       if (doc.getElementsByTagName("parsererror").length) throw new Error("XML inválido");
@@ -2381,10 +2395,7 @@ function frpNear(lat, lon){
     "&layers="+encodeURIComponent(FRP_Q.layer)+"&query_layers="+encodeURIComponent(FRP_Q.layer)+
     "&styles=&format=image/png&info_format=text/plain&feature_count=1"+
     (FRP_Q.time ? "&time="+encodeURIComponent(FRP_Q.time) : "");
-  return fetch(u, {cache:"no-store"}).then(function(r){
-    if (!r.ok) throw new Error("HTTP "+r.status);
-    return r.text();
-  }).then(function(txt){
+  return fetchVia(u, 9000, null, "texto").then(function(r){ return r.data; }).then(function(txt){
     var m = txt.match(/-?\d+(\.\d+)?/);
     var v = (m && parseFloat(m[0]) > 0) ? parseFloat(m[0]) : null;
     frpCache[k] = { v:v, t:Date.now() };
@@ -2808,7 +2819,15 @@ function loadPoster(box, tipo, descricao){
      o prompt de imagem no Worker — a legenda e a chave de cache usam
      sempre "tipo" (só o nome), nunca a descrição alargada */
   var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(descricao || tipo);
-  fetch(u).then(function(r){ return r.json(); }).then(function(j){
+  /* Geração de imagem é mais lenta que uma consulta normal — sem
+     timeout, um pedido perdido deixava "a gerar poster vintage…" preso
+     para sempre. Não usa fetchVia: só o Worker próprio tem Workers AI,
+     tentar os proxies públicos a seguir seria sempre em vão. */
+  var ctrl = new AbortController();
+  var relogio = setTimeout(function(){ ctrl.abort(); }, 20000);
+  fetch(u, { signal:ctrl.signal }).then(function(r){
+    clearTimeout(relogio); return r.json();
+  }).then(function(j){
     if (!j || !j.image){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
     return compositarPoster(j.image, tipo).then(function(src){
       if (!src){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
@@ -2817,7 +2836,7 @@ function loadPoster(box, tipo, descricao){
       try { localStorage.setItem(posterKey(tipo), src); registarNaColecao(tipo); }
       catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
     });
-  }).catch(function(){ posterCache[tipo] = ""; box.innerHTML = ""; });
+  }).catch(function(){ clearTimeout(relogio); posterCache[tipo] = ""; box.innerHTML = ""; });
 }
 function onPopupOpen(e){
   var el = e.popup.getElement(); if (!el) return;
@@ -2851,13 +2870,22 @@ function renderColecao(){
   });
   grid.innerHTML = html || '<div class="colEmpty">Ainda sem pósteres guardados.</div>';
 }
+/* "há Xd"/"há Xh"/durS(...) — durS() sozinho fica feio para um registo
+   que pode ter dias (mostraria "2880m"); só usado aqui. */
+function haQuanto(ms){
+  var s = Math.max(0, Math.round(ms/1000));
+  var d = Math.floor(s/86400); if (d) return d+"d";
+  var h = Math.floor(s/3600); if (h) return h+"h";
+  return durS(ms);
+}
 function renderTipoLogPainel(){
   var log = carregarTipoLog();
+  var agora = Date.now();
   var linhas = Object.keys(log).map(function(t){
     var e = log[t];
     var n = Object.keys(e.hexes||{}).length;
     var nome = FIRE_TYPES[t] || POSTER_NOMES[t] || "";
-    return { t:t, n:n, nome:nome, reg:e.reg||"" };
+    return { t:t, n:n, nome:nome, reg:e.reg||"", ultimo:e.ultimo||e.primeiro||agora };
   }).sort(function(p,q){ return p.n - q.n || p.t.localeCompare(q.t); });
   var el = $("colLog");
   if (!linhas.length){
@@ -2869,7 +2897,8 @@ function renderTipoLogPainel(){
     return '<div class="colLogRow"><span class="clCod">'+esc(l.t)+'</span>'+
       '<span class="clNome'+(l.nome?"":" semNome")+'">'+
         esc(l.nome || "sem nome mapeado"+(l.reg?" · ex.: "+l.reg:""))+'</span>'+
-      '<span class="clN">'+l.n+(l.n===1?" aeronave":" aeronaves")+'</span></div>';
+      '<span class="clN">'+l.n+(l.n===1?" aeronave":" aeronaves")+
+        ' · há '+haQuanto(agora-l.ultimo)+'</span></div>';
   }).join("");
 }
 function abrirColecao(){ renderColecao(); renderTipoLogPainel(); $("colOverlay").hidden = false; }
