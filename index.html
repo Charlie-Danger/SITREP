@@ -324,6 +324,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .pp-poster img{display:block;width:100%;height:auto;border:1px solid var(--rule-hi)}
 .pp-poster-lbl{font-size:9.5px;color:var(--ink-mute);margin-top:3px;
                font-style:italic;font-family:var(--f-mono)}
+.pp-poster-tmp{color:var(--orange, #c77)}
 .pp-poster-wait{font-size:10px;color:var(--ink-mute);margin-top:6px;font-style:italic}
 
 /* ---------- painéis do SITREP ---------- */
@@ -845,7 +846,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.35";
+var VERSAO = "2026-09-20.37";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2782,18 +2783,27 @@ function loadPhoto(box, hex, reg, tipo, tipoIcao){
    silenciosamente vazio — nunca quebra o resto do popup. */
 function posterKey(tipo){ return "sitrep_poster_" + tipo; }
 function posterModoKey(tipo){ return "sitrep_poster_modo_" + tipo; }
-/* "modo" (foto | texto | texto-fallback, ver worker.js) não muda o que
-   se vê — é só um atributo title no <img>, útil para diagnosticar um
-   poster com defeito sem precisar de abrir os logs do Worker: basta
-   pairar o rato para saber se a imagem veio de image-to-image sobre
-   uma fotografia real ou só de uma descrição em texto. */
+function posterDataKey(tipo){ return "sitrep_poster_data_" + tipo; }
+/* Mesma data que o worker.js usa (toISOString, sempre UTC) — é o que
+   decide se um poster "secundario" já é de um dia anterior e merece
+   uma tentativa silenciosa de regeneração pelo modelo principal. */
+function hojeUTC(){ return new Date().toISOString().slice(0, 10); }
+/* "modo" (ver worker.js) não muda o que se vê — é só um atributo title
+   no <img>, útil para diagnosticar um poster com defeito sem precisar
+   de abrir os logs do Worker: basta pairar o rato para saber de onde
+   veio a imagem. "secundario" é especial: é um poster temporário
+   (quota do modelo principal esgotada nesse dia) — loadPoster tenta
+   substituí-lo automaticamente da próxima vez que o tipo for aberto
+   num dia diferente. */
 function posterHtml(tipo, src, modo){
   var tit = modo === "foto" ? "gerado a partir de fotografia real (image-to-image)"
           : modo === "texto-fallback" ? "tentativa com fotografia falhou — gerado só por texto"
           : modo === "texto" ? "gerado só por texto (sem fotografia disponível)"
+          : modo === "secundario" ? "temporário — modelo principal sem quota; será substituído automaticamente"
           : "";
   return '<img src="'+esc(src)+'" alt="Poster vintage — '+esc(tipo)+'"'+(tit?' title="'+esc(tit)+'"':'')+'>'+
-         '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+'</div>';
+         '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+
+         (modo==="secundario"?' <span class="pp-poster-tmp">(temporário)</span>':'')+'</div>';
 }
 /* O modelo de imagem já inventou datas ("2027 - 2916") e uma matrícula
    falsa pintada na aeronave, mesmo depois de instruído para não o
@@ -2865,17 +2875,39 @@ function registarNaColecao(tipo){
 function loadPoster(box, tipo, descricao, tipoIcao){
   if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
   if (posterCache[tipo] !== undefined){ box.innerHTML = posterCache[tipo] || ""; return; }
-  var guardado = null, modoGuardado = null;
+  var guardado = null, modoGuardado = null, dataGuardado = null;
   try {
     guardado = localStorage.getItem(posterKey(tipo));
     modoGuardado = localStorage.getItem(posterModoKey(tipo));
+    dataGuardado = localStorage.getItem(posterDataKey(tipo));
   } catch(e){}
+  /* Um poster "secundario" (gerado enquanto o modelo principal estava
+     sem quota) mostra-se sempre de imediato — nunca se fica à espera
+     por causa disto. Mas se for de um dia UTC diferente do de hoje,
+     tenta-se substituí-lo pelo principal em segundo plano, em
+     silêncio: sem mensagem de "a gerar…", sem apagar a imagem antiga
+     se a tentativa falhar. A pessoa só repara se e quando resultar. */
+  var tentarSubstituirSecundario = false;
   if (guardado){
     var html = posterHtml(tipo, guardado, modoGuardado);
-    posterCache[tipo] = html; box.innerHTML = html; return;
+    posterCache[tipo] = html; box.innerHTML = html;
+    if (modoGuardado === "secundario" && dataGuardado && dataGuardado !== hojeUTC() && proxyProprio){
+      tentarSubstituirSecundario = true;
+      /* Marca já a tentativa de hoje, sucesso ou não — evita repetir o
+         pedido ao Worker sempre que o popup deste tipo for reaberto no
+         mesmo dia, se a substituição falhar. */
+      try { localStorage.setItem(posterDataKey(tipo), hojeUTC()); } catch(e){}
+    } else {
+      return;
+    }
   }
-  if (!proxyProprio){ posterCache[tipo] = ""; box.innerHTML=""; return; }
-  box.innerHTML = '<div class="pp-poster-wait">a gerar poster vintage…</div>';
+  if (!proxyProprio){
+    if (!tentarSubstituirSecundario){ posterCache[tipo] = ""; box.innerHTML=""; }
+    return;
+  }
+  if (!tentarSubstituirSecundario){
+    box.innerHTML = '<div class="pp-poster-wait">a gerar poster vintage…</div>';
+  }
   /* "descricao" (nome + eventual pista de forma) só serve para compor
      o prompt de imagem no Worker — a legenda e a chave de cache usam
      sempre "tipo" (só o nome), nunca a descrição alargada. Se já
@@ -2897,20 +2929,49 @@ function loadPoster(box, tipo, descricao, tipoIcao){
   fetch(u, { signal:ctrl.signal }).then(function(r){
     clearTimeout(relogio); return r.json();
   }).then(function(j){
-    if (!j || !j.image){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
+    if (j && j.motivo === "quota"){
+      /* Se isto era uma tentativa silenciosa de substituir um poster
+         "secundario", a quota principal continua esgotada (ou até o
+         secundário caiu) — mantém-se o que já estava mostrado, sem
+         qualquer alteração visível, tenta-se de novo amanhã. */
+      if (tentarSubstituirSecundario) return;
+      /* Falha conhecida e clara: quota diária gratuita do Workers AI
+         esgotada (ver worker.js). Fica em cache só nesta sessão — não
+         em localStorage — para não hammering o Worker outra vez hoje,
+         mas também não marcar o tipo como "sem poster" para sempre;
+         um refresh da página, já depois da meia-noite UTC, tenta de
+         novo sozinho. */
+      var htmlQuota = '<div class="pp-poster-wait">sem quota do Workers AI hoje — tenta depois da meia-noite UTC (~1h em Lisboa)</div>';
+      posterCache[tipo] = htmlQuota; box.innerHTML = htmlQuota; return;
+    }
+    if (!j || !j.image){
+      if (tentarSubstituirSecundario) return;
+      posterCache[tipo] = ""; box.innerHTML = ""; return;
+    }
     var modo = j.modo || "";
     return compositarPoster(j.image, tipo).then(function(src){
-      if (!src){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
+      if (!src){
+        if (tentarSubstituirSecundario) return;
+        posterCache[tipo] = ""; box.innerHTML = ""; return;
+      }
+      /* Chega aqui tanto na geração normal como numa substituição
+         silenciosa bem-sucedida — em ambos os casos há imagem nova a
+         mostrar, por isso o comportamento é o mesmo: substitui. */
       var html = posterHtml(tipo, src, modo);
       posterCache[tipo] = html; box.innerHTML = html;
       try {
         localStorage.setItem(posterKey(tipo), src);
         if (modo) localStorage.setItem(posterModoKey(tipo), modo);
+        localStorage.setItem(posterDataKey(tipo), hojeUTC());
         registarNaColecao(tipo);
       }
       catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
     });
-  }).catch(function(){ clearTimeout(relogio); posterCache[tipo] = ""; box.innerHTML = ""; });
+  }).catch(function(){
+    clearTimeout(relogio);
+    if (tentarSubstituirSecundario) return;
+    posterCache[tipo] = ""; box.innerHTML = "";
+  });
 }
 function onPopupOpen(e){
   var el = e.popup.getElement(); if (!el) return;
@@ -2986,7 +3047,11 @@ function limparColecao(){
   if (!idx.length){ return; }
   if (!confirm("Apagar os " + idx.length + " pósteres guardados? Não é reversível — a próxima vez que abrires cada tipo, gera-se de novo.")) return;
   try {
-    idx.forEach(function(tipo){ localStorage.removeItem(posterKey(tipo)); localStorage.removeItem(posterModoKey(tipo)); });
+    idx.forEach(function(tipo){
+      localStorage.removeItem(posterKey(tipo));
+      localStorage.removeItem(posterModoKey(tipo));
+      localStorage.removeItem(posterDataKey(tipo));
+    });
     localStorage.removeItem("sitrep_poster_index");
   } catch(e){}
   posterCache = {};
