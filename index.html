@@ -179,6 +179,49 @@ body.dia .seg button[aria-pressed="true"]{color:#FBFAF7}
 }
 .keynote span{color:var(--ink-mid)}
 
+/* ---------- Spotter Collection ---------- */
+.colOverlay{
+  position:fixed;inset:0;z-index:2000;
+  background:rgba(0,0,0,.62);
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:28px 14px;overflow-y:auto;
+}
+.colOverlay[hidden]{display:none}
+.colPanel{
+  background:var(--panel);border:1px solid var(--rule-hi);border-radius:3px;
+  width:100%;max-width:920px;max-height:100%;
+  display:flex;flex-direction:column;
+}
+.colHead{
+  display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  padding:14px var(--gut);border-bottom:1px solid var(--rule);
+}
+.colHead h2{
+  font-family:var(--f-cond);font-size:17px;font-weight:700;
+  letter-spacing:.04em;text-transform:uppercase;color:var(--ink);margin:0;
+}
+.colHead .colCount{
+  font-family:var(--f-mono);font-size:11px;color:var(--ink-mute);flex:1;
+}
+.colHead .btn{margin-left:auto}
+.colGrid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+  gap:12px;padding:14px var(--gut) 18px;overflow-y:auto;
+}
+.colCard{
+  background:var(--panel-2);border:1px solid var(--rule-hi);border-radius:2px;
+  overflow:hidden;display:flex;flex-direction:column;
+}
+.colCard img{display:block;width:100%;height:auto;aspect-ratio:1/1;object-fit:cover}
+.colCard .colLbl{
+  font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mid);
+  padding:6px 8px;line-height:1.35;
+}
+.colEmpty{
+  padding:32px var(--gut);text-align:center;
+  font-family:var(--f-mono);font-size:11.5px;color:var(--ink-mute);line-height:1.7;
+}
+
 /* ---------- mapas ---------- */
 .mapwrap{position:relative}
 #mapS{height:56vh;min-height:320px;width:100%;background:var(--void);
@@ -255,6 +298,14 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .pp-cred{font-size:9.5px;color:var(--ink-mute);margin-top:3px;
          overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--f-mono)}
 .pp-wait{font-size:10px;color:var(--ink-mute);margin-top:6px;font-style:italic}
+.pp-gen-note{font-size:9.5px;color:var(--amber);margin-bottom:3px;font-style:italic}
+
+/* poster vintage por tipo — "pokedex" de aeronaves */
+.pp-poster{margin-top:8px}
+.pp-poster img{display:block;width:100%;height:auto;border:1px solid var(--rule-hi)}
+.pp-poster-lbl{font-size:9.5px;color:var(--ink-mute);margin-top:3px;
+               font-style:italic;font-family:var(--f-mono)}
+.pp-poster-wait{font-size:10px;color:var(--ink-mute);margin-top:6px;font-style:italic}
 
 /* ---------- painéis do SITREP ---------- */
 .deck{
@@ -565,6 +616,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
   <button class="btn only-wide" id="btnFires" type="button" aria-pressed="true">Só incêndios</button>
   <button class="btn only-wide" id="btnTheme" type="button">Modo dia</button>
   <button class="btn only-wide" id="btnKey" type="button">Chave</button>
+  <button class="btn only-wide" id="btnColecao" type="button">Coleção</button>
   <button class="btn only-wide" id="btnRefresh" type="button">Atualizar</button>
   <button class="btn only-narrow" id="btnMais" type="button" aria-expanded="false" aria-label="Mais opções">···</button>
 </div>
@@ -573,7 +625,19 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
   <button class="btn" id="btnFires2" type="button" aria-pressed="true">Só incêndios</button>
   <button class="btn" id="btnTheme2" type="button">Modo dia</button>
   <button class="btn" id="btnKey2" type="button">Chave</button>
+  <button class="btn" id="btnColecao2" type="button">Coleção</button>
   <button class="btn" id="btnRefresh2" type="button">Atualizar</button>
+</div>
+
+<div class="colOverlay" id="colOverlay" hidden>
+  <div class="colPanel" role="dialog" aria-modal="true" aria-labelledby="colTitulo">
+    <div class="colHead">
+      <h2 id="colTitulo">Spotter Collection</h2>
+      <span class="colCount" id="colContagem"></span>
+      <button class="btn" id="colFechar" type="button">Fechar</button>
+    </div>
+    <div class="colGrid" id="colGrid"></div>
+  </div>
 </div>
 
 <div class="keybar" id="posBar" hidden>
@@ -748,7 +812,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.19";
+var VERSAO = "2026-09-20.22";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -937,7 +1001,12 @@ var netHost = {}, netMode = { direct:null, proxy:null };
 var DIAG = { incidents:{ok:null,via:"—",msg:""}, weather:{ok:null,via:"—",msg:""},
              aircraft:{ok:null,via:"—",msg:""} };
 var DIAG_SAF = { ok:null, msg:"" };
-var photoCache = {};
+var photoCache = {};      // chave: HEX ou matrícula (maiúsculas) → HTML da foto específica ("" = sem foto encontrada)
+var photoTipoCache = {};  // chave: rótulo do tipo (x.label, já normalizado por FIRE_TYPES) →
+                           // HTML da primeira foto real vista desse modelo, para servir de
+                           // "foto genérica" a outras aeronaves do mesmo tipo sem foto própria
+var posterCache = {};     // chave: rótulo do tipo → HTML do poster vintage gerado por IA
+                           // (espelha localStorage; ver loadPoster)
 var radarReady = false;
 /* ordenação da tabela "Contactos" no radar — local a esta vista, nunca
    toca na ordem de `acs` partilhada com o painel SITREP (combate primeiro,
@@ -2448,10 +2517,25 @@ if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)")
 }
 
 /* ---------- foto da aeronave ---------- */
-function loadPhoto(box, hex, reg){
+/* Sem confirmação de que a Planespotters (ou outra fonte) permite pesquisa
+   por tipo/modelo — a documentação pública está bloqueada por robots.txt e
+   não há registo de tal endpoint. [Não verificado] Em vez de assumir essa
+   capacidade, o próprio painel constrói a cache de tipo: guarda a primeira
+   foto REAL vista de cada modelo (a mesma fonte Planespotters, por matrícula
+   ou hex) e usa-a como substituta, claramente identificada como genérica,
+   quando uma aeronave concreta não tem foto própria. Não é uma foto
+   "genérica do fabricante" — é sempre uma foto real doutra aeronave do
+   mesmo tipo, já vista neste painel. */
+function fotoGenerica(tipo){
+  if (!tipo || tipo==="—" || tipo==="desconhecido") return "";
+  var html = photoTipoCache[tipo];
+  if (!html) return "";
+  return '<div class="pp-gen-note">foto genérica do modelo — não é esta aeronave</div>' + html;
+}
+function loadPhoto(box, hex, reg, tipo){
   var key = (hex||reg||"").toUpperCase();
   if (!key) return;
-  if (photoCache[key] !== undefined){ box.innerHTML = photoCache[key] || ""; return; }
+  if (photoCache[key] !== undefined){ box.innerHTML = photoCache[key] || fotoGenerica(tipo); return; }
   box.innerHTML = '<div class="pp-wait">a procurar fotografia…</div>';
   var u = hex ? "https://api.planespotters.net/pub/photos/hex/"+encodeURIComponent(hex)
               : "https://api.planespotters.net/pub/photos/reg/"+encodeURIComponent(reg);
@@ -2459,19 +2543,101 @@ function loadPhoto(box, hex, reg){
     var ph = (r.data && r.data.photos && r.data.photos[0]) || null;
     var src = ph && ((ph.thumbnail_large && ph.thumbnail_large.src) ||
                      (ph.thumbnail && ph.thumbnail.src));
-    if (!src){ photoCache[key]=""; box.innerHTML=""; return; }
+    if (!src){ photoCache[key]=""; box.innerHTML = fotoGenerica(tipo); return; }
     var html = '<a href="'+esc(ph.link||"#")+'" target="_blank" rel="noopener">'+
                '<img class="pp-img" src="'+esc(src)+'" alt="Fotografia da aeronave" loading="lazy"></a>'+
                '<div class="pp-cred">© '+esc(ph.photographer||"desconhecido")+' · Planespotters</div>';
     photoCache[key] = html; box.innerHTML = html;
-  }).catch(function(){ photoCache[key]=""; box.innerHTML=""; });
+    if (tipo && tipo!=="—" && tipo!=="desconhecido" && photoTipoCache[tipo]===undefined){
+      photoTipoCache[tipo] = html;
+    }
+  }).catch(function(){ photoCache[key]=""; box.innerHTML = fotoGenerica(tipo); });
+}
+/* ---------- poster vintage por tipo ("pokedex" de aeronaves) ----------
+   Gerado sob pedido pelo Worker próprio (Workers AI, ver worker.js) e
+   guardado em localStorage: cada tipo só é gerado UMA VEZ, para
+   sempre — não a cada sessão, não a cada aeronave. Sem Worker próprio
+   configurado, ou sem o binding AI ativo nesse Worker, fica
+   silenciosamente vazio — nunca quebra o resto do popup. */
+function posterKey(tipo){ return "sitrep_poster_" + tipo; }
+function posterHtml(tipo, src){
+  return '<img src="'+esc(src)+'" alt="Poster vintage — '+esc(tipo)+'">'+
+         '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+'</div>';
+}
+/* Índice dos tipos já colecionados — evita varrer o localStorage inteiro
+   por prefixo (frágil se um dia houver outras chaves "sitrep_poster_*")
+   e é o que alimenta a "Spotter Collection". Guardado à parte, como
+   JSON, nunca reconstruído a partir de outras chaves. */
+function lerIndiceColecao(){
+  try { return JSON.parse(localStorage.getItem("sitrep_poster_index") || "[]"); }
+  catch(e){ return []; }
+}
+function registarNaColecao(tipo){
+  var idx = lerIndiceColecao();
+  if (idx.indexOf(tipo) < 0){
+    idx.push(tipo);
+    try { localStorage.setItem("sitrep_poster_index", JSON.stringify(idx)); } catch(e){}
+  }
+}
+function loadPoster(box, tipo){
+  if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
+  if (posterCache[tipo] !== undefined){ box.innerHTML = posterCache[tipo] || ""; return; }
+  var guardado = null;
+  try { guardado = localStorage.getItem(posterKey(tipo)); } catch(e){}
+  if (guardado){
+    var html = posterHtml(tipo, guardado);
+    posterCache[tipo] = html; box.innerHTML = html; return;
+  }
+  if (!proxyProprio){ posterCache[tipo] = ""; box.innerHTML=""; return; }
+  box.innerHTML = '<div class="pp-poster-wait">a gerar poster vintage…</div>';
+  var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(tipo);
+  fetch(u).then(function(r){ return r.json(); }).then(function(j){
+    if (!j || !j.image){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
+    var src = "data:image/jpeg;charset=utf-8;base64," + j.image;
+    var html = posterHtml(tipo, src);
+    posterCache[tipo] = html; box.innerHTML = html;
+    try { localStorage.setItem(posterKey(tipo), src); registarNaColecao(tipo); }
+    catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
+  }).catch(function(){ posterCache[tipo] = ""; box.innerHTML = ""; });
 }
 function onPopupOpen(e){
   var el = e.popup.getElement(); if (!el) return;
-  var pp = el.querySelector(".pp"), box = el.querySelector(".pp-photo");
-  if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg);
+  var pp = el.querySelector(".pp"), box = el.querySelector(".pp-photo"),
+      boxP = el.querySelector(".pp-poster");
+  if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg, pp.dataset.type);
+  if (pp && boxP) loadPoster(boxP, pp.dataset.type);
 }
 mapS.on("popupopen", onPopupOpen);
+
+/* ---------- Spotter Collection ---------- */
+function renderColecao(){
+  var idx = lerIndiceColecao().slice().sort(function(a,b){ return a.localeCompare(b, "pt"); });
+  var grid = $("colGrid");
+  $("colContagem").textContent = idx.length + (idx.length===1 ? " tipo colecionado" : " tipos colecionados");
+  if (!idx.length){
+    grid.innerHTML = '<div class="colEmpty">Ainda sem pósteres. Cada vez que abrir o popup de uma '+
+      'aeronave de um tipo novo, e o Worker próprio tiver o Workers AI ativo, o poster gerado '+
+      'fica aqui — para sempre, uma vez por modelo.</div>';
+    return;
+  }
+  var html = "";
+  idx.forEach(function(tipo){
+    var src = null;
+    try { src = localStorage.getItem(posterKey(tipo)); } catch(e){}
+    if (!src) return; /* índice e imagem dessincronizados — não mostra buraco */
+    html += '<div class="colCard"><img src="'+esc(src)+'" alt="Poster — '+esc(tipo)+'">'+
+            '<div class="colLbl">'+esc(tipo)+'</div></div>';
+  });
+  grid.innerHTML = html || '<div class="colEmpty">Ainda sem pósteres guardados.</div>';
+}
+function abrirColecao(){ renderColecao(); $("colOverlay").hidden = false; }
+function fecharColecao(){ $("colOverlay").hidden = true; }
+$("btnColecao").addEventListener("click", abrirColecao);
+$("colFechar").addEventListener("click", fecharColecao);
+$("colOverlay").addEventListener("click", function(e){ if (e.target === this) fecharColecao(); });
+document.addEventListener("keydown", function(e){
+  if (e.key === "Escape" && !$("colOverlay").hidden) fecharColecao();
+});
 
 /* ============================================================
    RENDER — comum
@@ -2495,14 +2661,15 @@ function acPopup(x){
   var a=x.a;
   var id=(a.flight||"").trim()||a.r||a.hex||"—";
   var alt=a.alt_baro==="ground"?"no solo":Math.round(num(a.alt_baro))+" ft";
-  return '<div class="pp" data-hex="'+esc(a.hex||"")+'" data-reg="'+esc(a.r||"")+'">'+
+  return '<div class="pp" data-hex="'+esc(a.hex||"")+'" data-reg="'+esc(a.r||"")+
+    '" data-type="'+esc(x.label||"")+'">'+
     '<b>'+esc(id)+'</b><br><span class="mono">'+esc(x.label)+(a.r?" · "+esc(a.r):"")+'</span><br>'+
     '<span class="mono">'+alt+' · '+Math.round(num(a.gs))+' kt · rumo '+
       Math.round(num(a.track))+'°</span><br>'+
     '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s</span><br>'+
     '<span class="mono">'+(x.fire ? (x.reason==="tipo"
       ? "Tipo conhecido de combate" : "Perfil de voo compatível") : "Tráfego geral")+'</span>'+
-    '<div class="pp-photo"></div></div>';
+    '<div class="pp-photo"></div><div class="pp-poster"></div></div>';
 }
 
 /* ============================================================
@@ -3346,7 +3513,7 @@ $("btnMais").addEventListener("click", function(){
 });
 /* os duplicados do menu accionam os originais, para não duplicar lógica */
 [["btnFires2","btnFires"],["btnTheme2","btnTheme"],
- ["btnKey2","btnKey"],["btnRefresh2","btnRefresh"]].forEach(function(par){
+ ["btnKey2","btnKey"],["btnColecao2","btnColecao"],["btnRefresh2","btnRefresh"]].forEach(function(par){
   $(par[0]).addEventListener("click", function(){
     $(par[1]).click();
     if (par[0] !== "btnKey2") $("maisBar").hidden = true;
