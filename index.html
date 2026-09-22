@@ -221,6 +221,24 @@ body.dia .seg button[aria-pressed="true"]{color:#FBFAF7}
   padding:32px var(--gut);text-align:center;
   font-family:var(--f-mono);font-size:11.5px;color:var(--ink-mute);line-height:1.7;
 }
+.colLogHead{
+  padding:16px var(--gut) 4px;border-top:1px solid var(--rule);
+}
+.colLogHead h3{
+  font-family:var(--f-cond);font-size:13px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--ink);margin:0 0 3px;
+}
+.colLogNote{font-family:var(--f-mono);font-size:10px;color:var(--ink-mute)}
+.colLog{padding:6px var(--gut) 16px;overflow-y:auto}
+.colLogRow{
+  display:flex;align-items:baseline;gap:8px;padding:5px 0;
+  border-bottom:1px solid var(--rule);font-family:var(--f-mono);font-size:11px;
+}
+.colLogRow .clCod{font-weight:700;color:var(--ink);flex:0 0 46px}
+.colLogRow .clNome{flex:1;min-width:0;color:var(--ink-mid);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colLogRow .clNome.semNome{color:var(--ink-mute);font-style:italic}
+.colLogRow .clN{flex:0 0 auto;color:var(--ink-mute)}
 
 /* ---------- mapas ---------- */
 .mapwrap{position:relative}
@@ -298,6 +316,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .pp-cred{font-size:9.5px;color:var(--ink-mute);margin-top:3px;
          overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--f-mono)}
 .pp-wait{font-size:10px;color:var(--ink-mute);margin-top:6px;font-style:italic}
+.pp-alerta{color:var(--red);font-weight:600}
 .pp-gen-note{font-size:9.5px;color:var(--amber);margin-bottom:3px;font-style:italic}
 
 /* poster vintage por tipo — "pokedex" de aeronaves */
@@ -414,6 +433,14 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .ac-tag{flex:0 0 46px;height:34px;display:flex;align-items:center;justify-content:center;
         border:1px solid var(--rule-hi);border-radius:2px;background:var(--panel-2)}
 .ac.fire .ac-tag{border-color:var(--orange);background:rgba(240,138,34,.13)}
+.ac.interessante .ac-tag,.row.interessante .cs{
+  animation:pulseInteressante 1.4s ease-in-out infinite;
+}
+.ac.interessante .ac-id,.row.interessante .cs{color:var(--red)}
+@keyframes pulseInteressante{
+  0%,100%{box-shadow:0 0 0 0 rgba(232,68,42,.55)}
+  50%{box-shadow:0 0 0 5px rgba(232,68,42,0)}
+}
 .ac-main{flex:1;min-width:0}
 .ac-id{font-family:var(--f-cond);font-size:16px;font-weight:600;letter-spacing:.05em;
        color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -638,6 +665,11 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       <button class="btn" id="colFechar" type="button">Fechar</button>
     </div>
     <div class="colGrid" id="colGrid"></div>
+    <div class="colLogHead">
+      <h3>Tipos avistados</h3>
+      <span class="colLogNote">aeronaves distintas por tipo, dos menos vistos aos mais vistos — útil para decidir o que acrescentar ao POSTER_NOMES</span>
+    </div>
+    <div class="colLog" id="colLog"></div>
   </div>
 </div>
 
@@ -813,7 +845,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.24";
+var VERSAO = "2026-09-20.26";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -946,6 +978,96 @@ var FIRE_TYPES = {
   EC35:"EC135", H135:"H135", EC45:"EC145", H145:"H145",
   IL76:"Il-76", C130:"C-130 Hercules", B733:"B737 Fireliner"
 };
+
+/* Nomes descritivos para o poster vintage — tabela SEPARADA do
+   FIRE_TYPES de propósito: aquele serve para classificar combate a
+   incêndios, e um A321 da TAP não pode ganhar essa bandeira só para
+   ter nome bonito num poster. Cobre os tipos mais comuns no espaço
+   aéreo português (tráfego comercial + aviação ligeira). Fora desta
+   lista, o código ICAO cru (ex.: "A21N") não diz nada a um modelo de
+   imagem — foi exatamente isso que produziu um poster de um avião
+   ligeiro genérico para um A321neo real. Por isso, fora desta lista
+   e fora do FIRE_TYPES, NÃO se gera poster — silêncio é melhor do
+   que uma imagem sem relação nenhuma com a aeronave real. */
+var POSTER_NOMES = {
+  A19N:"Airbus A319neo", A20N:"Airbus A320neo", A21N:"Airbus A321neo",
+  A318:"Airbus A318", A319:"Airbus A319", A320:"Airbus A320", A321:"Airbus A321",
+  A332:"Airbus A330-200", A333:"Airbus A330-300", A339:"Airbus A330-900neo",
+  A343:"Airbus A340-300", A359:"Airbus A350-900", A35K:"Airbus A350-1000",
+  A388:"Airbus A380",
+  B734:"Boeing 737-400", B737:"Boeing 737-700", B738:"Boeing 737-800", B739:"Boeing 737-900",
+  B38M:"Boeing 737 MAX 8", B39M:"Boeing 737 MAX 9",
+  B752:"Boeing 757-200", B763:"Boeing 767-300", B772:"Boeing 777-200", B77W:"Boeing 777-300ER",
+  B788:"Boeing 787-8 Dreamliner", B789:"Boeing 787-9 Dreamliner", B78X:"Boeing 787-10 Dreamliner",
+  B744:"Boeing 747-400",
+  E170:"Embraer E170", E190:"Embraer E190", E195:"Embraer E195", E75L:"Embraer E175",
+  AT45:"ATR 42", AT72:"ATR 72", AT76:"ATR 72-600", SF34:"Saab 340",
+  C172:"Cessna 172 Skyhawk", C182:"Cessna 182 Skylane", C152:"Cessna 152",
+  PA28:"Piper PA-28 Cherokee", PA34:"Piper PA-34 Seneca", PA44:"Piper PA-44 Seminole",
+  SR22:"Cirrus SR22", SR20:"Cirrus SR20", DA40:"Diamond DA40", DA42:"Diamond DA42", DA62:"Diamond DA62",
+  BE20:"Beechcraft King Air 200", BE9L:"Beechcraft King Air 90", TBM9:"TBM 900", PC12:"Pilatus PC-12",
+  C25A:"Cessna Citation CJ2", C25B:"Cessna Citation CJ3", C25C:"Cessna Citation CJ4",
+  C56X:"Cessna Citation Excel", C680:"Cessna Citation Sovereign",
+  E50P:"Embraer Phenom 100", E55P:"Embraer Phenom 300",
+  GLF4:"Gulfstream IV", GLF5:"Gulfstream V", GLEX:"Gulfstream G650",
+  FA7X:"Dassault Falcon 7X", F900:"Dassault Falcon 900",
+  R44:"Robinson R44", R66:"Robinson R66", EC20:"EC120 Colibri", H120:"H120 Colibri"
+};
+/* Nome a usar no poster: se o classify() já deu um nome descritivo do
+   FIRE_TYPES (reason "tipo"), usa-se esse. Senão, só se o código ICAO
+   cru estiver na tabela acima — nunca o código cru em si. */
+function posterNome(x){
+  if (x.reason === "tipo") return x.label;
+  var t = ((x.a && x.a.t) || "").toUpperCase();
+  return POSTER_NOMES[t] || "";
+}
+
+/* ---------- "interesse": squawk de emergência + raridade de tipo ----------
+   Squawk é um facto ICAO estável, sem ambiguidade — 7500/7600/7700 são
+   códigos universais, não uma interpretação minha. As redes em formato
+   "readsb" (adsb.fi/adsb.lol/airplanes.live) já trazem "squawk" no
+   objeto bruto, sem precisar de mapeamento; só o OpenSky precisava de
+   ir buscá-lo ao índice 14 do array (ver fromOpenSky). */
+function squawkAlerta(a){
+  var sq = String((a&&a.squawk)||"").trim();
+  if (sq === "7500") return "squawk 7500 — intercepção/sequestro";
+  if (sq === "7600") return "squawk 7600 — falha de rádio";
+  if (sq === "7700") return "squawk 7700 — emergência geral";
+  return "";
+}
+
+/* Registo de avistamentos por tipo — conta AERONAVES DISTINTAS (por
+   hex), não pedidos de rede: um aparelho parado numa pista não deve
+   inflacionar a contagem só por ser lido dezenas de vezes. Serve para
+   (a) sinalizar "primeira vez a ver este tipo" como alerta automático
+   e (b) alimentar a lista "Tipos avistados" na Coleção, para decidir
+   o que vale a pena acrescentar ao POSTER_NOMES. */
+var TIPO_LOG_KEY = "sitrep_tipo_log";
+var tipoLog = null, tipoLogSujo = false;
+function carregarTipoLog(){
+  if (tipoLog) return tipoLog;
+  try { tipoLog = JSON.parse(localStorage.getItem(TIPO_LOG_KEY) || "{}"); }
+  catch(e){ tipoLog = {}; }
+  return tipoLog;
+}
+function registarAvistamento(a){
+  var t = (a.t||"").toUpperCase();
+  if (!t || !a.hex) return false;
+  var log = carregarTipoLog();
+  var e = log[t];
+  var novo = !e;
+  if (!e){ e = log[t] = { hexes:{}, primeiro:Date.now(), reg:"" }; }
+  if (!e.hexes[a.hex]){ e.hexes[a.hex] = 1; tipoLogSujo = true; }
+  if (novo) tipoLogSujo = true;
+  e.ultimo = Date.now();
+  if (a.r) e.reg = a.r;
+  return novo;   /* true só na primeiríssima vez, alguma vez, que este tipo aparece */
+}
+function persistirTipoLog(){
+  if (!tipoLogSujo || !tipoLog) return;
+  try { localStorage.setItem(TIPO_LOG_KEY, JSON.stringify(tipoLog)); tipoLogSujo = false; }
+  catch(e){}
+}
 
 /* naturezas ANEPC que implicam via afetada */
 var ROAD_BLOCK = {
@@ -1593,7 +1715,8 @@ function fromOpenSky(st, srv){
         alt_baro: s[8] ? "ground" : Math.round((s[7]||0)*3.28084),
         alt_geom: isFinite(s[13]) ? Math.round(s[13]*3.28084) : undefined,
         gs:Math.round((s[9]||0)*1.94384), track:s[10]||0,
-        seen_pos: isFinite(s[3]) ? Math.max(0, now-s[3]) : 0, t:"" };
+        seen_pos: isFinite(s[3]) ? Math.max(0, now-s[3]) : 0, t:"",
+        squawk: s[14] || "" };
     });
 }
 
@@ -1808,12 +1931,16 @@ function ingestAircraft(list, src, via, fmt){
     return typeof a.lat === "number" && typeof a.lon === "number";
   }).map(function(a){
     var c = classify(a);
+    var alerta = squawkAlerta(a);
+    var novoTipo = registarAvistamento(a);
     return { a:a, fire:c.hit, label:c.label, reason:c.reason,
-             dist:hav(REF.lat, REF.lon, a.lat, a.lon) };
+             dist:hav(REF.lat, REF.lon, a.lat, a.lon),
+             alerta:alerta, novoTipo:novoTipo, interessante:!!(alerta || novoTipo) };
   }).sort(function(x,y){
     if (x.fire !== y.fire) return x.fire ? -1 : 1;
     return x.dist - y.dist;
   });
+  persistirTipoLog();
 
   pushTracks(acs);
   var pend = [];
@@ -2611,7 +2738,9 @@ function onPopupOpen(e){
   var pp = el.querySelector(".pp"), box = el.querySelector(".pp-photo"),
       boxP = el.querySelector(".pp-poster");
   if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg, pp.dataset.type);
-  if (pp && boxP) loadPoster(boxP, pp.dataset.type);
+  /* postertipo vem vazio quando não há nome descritivo de confiança —
+     loadPoster já trata "" como "não gerar nada", ver mais abaixo */
+  if (pp && boxP) loadPoster(boxP, pp.dataset.postertipo);
 }
 mapS.on("popupopen", onPopupOpen);
 
@@ -2636,7 +2765,28 @@ function renderColecao(){
   });
   grid.innerHTML = html || '<div class="colEmpty">Ainda sem pósteres guardados.</div>';
 }
-function abrirColecao(){ renderColecao(); $("colOverlay").hidden = false; }
+function renderTipoLogPainel(){
+  var log = carregarTipoLog();
+  var linhas = Object.keys(log).map(function(t){
+    var e = log[t];
+    var n = Object.keys(e.hexes||{}).length;
+    var nome = FIRE_TYPES[t] || POSTER_NOMES[t] || "";
+    return { t:t, n:n, nome:nome, reg:e.reg||"" };
+  }).sort(function(p,q){ return p.n - q.n || p.t.localeCompare(q.t); });
+  var el = $("colLog");
+  if (!linhas.length){
+    el.innerHTML = '<div class="colEmpty">Ainda sem registo — acumula-se sozinho à '+
+      'medida que o painel recebe tráfego.</div>';
+    return;
+  }
+  el.innerHTML = linhas.map(function(l){
+    return '<div class="colLogRow"><span class="clCod">'+esc(l.t)+'</span>'+
+      '<span class="clNome'+(l.nome?"":" semNome")+'">'+
+        esc(l.nome || "sem nome mapeado"+(l.reg?" · ex.: "+l.reg:""))+'</span>'+
+      '<span class="clN">'+l.n+(l.n===1?" aeronave":" aeronaves")+'</span></div>';
+  }).join("");
+}
+function abrirColecao(){ renderColecao(); renderTipoLogPainel(); $("colOverlay").hidden = false; }
 function fecharColecao(){ $("colOverlay").hidden = true; }
 /* Reset total — apaga índice e cada imagem guardada, e a cache em
    memória desta sessão. Útil ao mudar o estilo do prompt no worker.js:
@@ -2684,13 +2834,15 @@ function acPopup(x){
   var id=(a.flight||"").trim()||a.r||a.hex||"—";
   var alt=a.alt_baro==="ground"?"no solo":Math.round(num(a.alt_baro))+" ft";
   return '<div class="pp" data-hex="'+esc(a.hex||"")+'" data-reg="'+esc(a.r||"")+
-    '" data-type="'+esc(x.label||"")+'">'+
+    '" data-type="'+esc(x.label||"")+'" data-postertipo="'+esc(posterNome(x))+'">'+
     '<b>'+esc(id)+'</b><br><span class="mono">'+esc(x.label)+(a.r?" · "+esc(a.r):"")+'</span><br>'+
     '<span class="mono">'+alt+' · '+Math.round(num(a.gs))+' kt · rumo '+
       Math.round(num(a.track))+'°</span><br>'+
     '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s</span><br>'+
     '<span class="mono">'+(x.fire ? (x.reason==="tipo"
       ? "Tipo conhecido de combate" : "Perfil de voo compatível") : "Tráfego geral")+'</span>'+
+    (x.interessante ? '<br><span class="mono pp-alerta">⚠ '+
+      esc(x.alerta || "primeira vez a ver este tipo")+'</span>' : '')+
     '<div class="pp-photo"></div><div class="pp-poster"></div></div>';
 }
 
@@ -2935,10 +3087,11 @@ function renderAircraft(){
       var a=x.a, key=a.hex||a.r||(a.flight||"").trim(); if (!key) return;
       var id=(a.flight||"").trim()||a.r||key;
       var alt=a.alt_baro==="ground"?"solo":Math.round(num(a.alt_baro)).toLocaleString("pt-PT")+" ft";
-      var col = x.fire ? cssVar("--orange") : cssVar("--blue");
+      var col = x.interessante ? cssVar("--red") : (x.fire ? cssVar("--orange") : cssVar("--blue"));
 
       if (idx < 30){
-        html += '<div class="ac'+(x.fire?" fire":"")+'" data-lat="'+a.lat+'" data-lng="'+a.lon+'">'+
+        html += '<div class="ac'+(x.fire?" fire":"")+(x.interessante?" interessante":"")+
+          '" data-lat="'+a.lat+'" data-lng="'+a.lon+'">'+
           '<div class="ac-tag"><svg width="20" height="20" viewBox="0 0 24 24" '+
             'style="transform:rotate('+Math.round(num(a.track))+'deg)">'+
             '<path d="M12 2 L15.5 13 L12 11 L8.5 13 Z" fill="'+col+'"/>'+
@@ -2990,7 +3143,7 @@ function renderAircraft(){
       var a=x.a, key=a.hex||a.r||(a.flight||"").trim(); if (!key) return;
       var id=(a.flight||"").trim()||a.r||key;
       var fl=a.alt_baro==="ground"?"SOLO":String(Math.round(num(a.alt_baro)/100)).padStart(3,"0");
-      var col = x.fire ? cssVar("--ac-fire") : cssVar("--ac-gen");
+      var col = x.interessante ? cssVar("--red") : (x.fire ? cssVar("--ac-fire") : cssVar("--ac-gen"));
       /* Todas as aeronaves levam etiqueta. Em ecrã estreito fica só o
          indicativo: nível e velocidade estão na tabela, que é onde se
          comparam, e duas linhas por contacto enchiam o mapa. */
@@ -3003,7 +3156,8 @@ function renderAircraft(){
           var lp = tk.pts[tk.pts.length-1];
           if (lp.agl !== null && isFinite(lp.agl)) ag = Math.round(lp.agl);
         }
-        rows += '<div class="row'+(x.fire?" fire":"")+(num(a.seen_pos)>25?" stale":"")+
+        rows += '<div class="row'+(x.fire?" fire":"")+(x.interessante?" interessante":"")+
+          (num(a.seen_pos)>25?" stale":"")+
           '" data-lat="'+a.lat+'" data-lng="'+a.lon+'">'+
           '<span class="cs">'+esc(id)+'</span><span class="ty">'+esc(x.label)+'</span>'+
           '<span class="n">'+x.dist.toFixed(0)+'</span>'+
