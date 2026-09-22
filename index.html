@@ -845,7 +845,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.26";
+var VERSAO = "2026-09-20.27";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2697,6 +2697,51 @@ function posterHtml(tipo, src){
   return '<img src="'+esc(src)+'" alt="Poster vintage — '+esc(tipo)+'">'+
          '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+'</div>';
 }
+/* O modelo de imagem já inventou datas ("2027 - 2916") e uma matrícula
+   falsa pintada na aeronave, mesmo depois de instruído para não o
+   fazer — não é de confiar para texto nenhum. O worker.js já não pede
+   texto ao modelo; o nome do tipo é escrito aqui, com <canvas>, sobre
+   a imagem crua — a única forma de garantir que o que aparece escrito
+   está sempre certo. Se o canvas falhar por algum motivo, devolve a
+   imagem tal como veio (sem texto a mais, só sem o nome sobreposto). */
+function compositarPoster(base64, tipo){
+  return new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){
+      try {
+        var w = img.naturalWidth || 1024, h = img.naturalHeight || 1024;
+        var cv = document.createElement("canvas");
+        cv.width = w; cv.height = h;
+        var ctx = cv.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        var barraH = Math.round(h * 0.16);
+        var grad = ctx.createLinearGradient(0, h-barraH, 0, h);
+        grad.addColorStop(0, "rgba(8,8,8,0)");
+        grad.addColorStop(1, "rgba(8,8,8,.74)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, h-barraH, w, barraH);
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+        ctx.shadowColor = "rgba(0,0,0,.6)";
+        ctx.shadowBlur = Math.round(w*0.012);
+        var tam = Math.round(w * 0.062);
+        ctx.font = "700 "+tam+"px 'Segoe UI', Arial, sans-serif";
+        /* reduz o tamanho até caber, em vez de deixar cortar ou sair
+           dos limites — um nome como "Boeing 787-9 Dreamliner" é longo */
+        while (ctx.measureText(tipo).width > w*0.92 && tam > 10){
+          tam -= 2; ctx.font = "700 "+tam+"px 'Segoe UI', Arial, sans-serif";
+        }
+        ctx.fillText(tipo, w/2, h - barraH*0.34);
+        resolve(cv.toDataURL("image/jpeg", 0.9));
+      } catch(e){
+        resolve("data:image/jpeg;charset=utf-8;base64,"+base64);
+      }
+    };
+    img.onerror = function(){ resolve(null); };
+    img.src = "data:image/jpeg;charset=utf-8;base64,"+base64;
+  });
+}
 /* Índice dos tipos já colecionados — evita varrer o localStorage inteiro
    por prefixo (frágil se um dia houver outras chaves "sitrep_poster_*")
    e é o que alimenta a "Spotter Collection". Guardado à parte, como
@@ -2726,11 +2771,13 @@ function loadPoster(box, tipo){
   var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(tipo);
   fetch(u).then(function(r){ return r.json(); }).then(function(j){
     if (!j || !j.image){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
-    var src = "data:image/jpeg;charset=utf-8;base64," + j.image;
-    var html = posterHtml(tipo, src);
-    posterCache[tipo] = html; box.innerHTML = html;
-    try { localStorage.setItem(posterKey(tipo), src); registarNaColecao(tipo); }
-    catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
+    return compositarPoster(j.image, tipo).then(function(src){
+      if (!src){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
+      var html = posterHtml(tipo, src);
+      posterCache[tipo] = html; box.innerHTML = html;
+      try { localStorage.setItem(posterKey(tipo), src); registarNaColecao(tipo); }
+      catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
+    });
   }).catch(function(){ posterCache[tipo] = ""; box.innerHTML = ""; });
 }
 function onPopupOpen(e){
