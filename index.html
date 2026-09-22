@@ -203,7 +203,7 @@ body.dia .seg button[aria-pressed="true"]{color:#FBFAF7}
 .colHead .colCount{
   font-family:var(--f-mono);font-size:11px;color:var(--ink-mute);flex:1;
 }
-.colHead .btn{margin-left:auto}
+.colHead #colLimpar{margin-left:auto}
 .colGrid{
   display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
   gap:12px;padding:14px var(--gut) 18px;overflow-y:auto;
@@ -634,6 +634,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
     <div class="colHead">
       <h2 id="colTitulo">Spotter Collection</h2>
       <span class="colCount" id="colContagem"></span>
+      <button class="btn" id="colLimpar" type="button" title="Apaga todos os pósteres guardados — útil ao mudar de estilo">Limpar coleção</button>
       <button class="btn" id="colFechar" type="button">Fechar</button>
     </div>
     <div class="colGrid" id="colGrid"></div>
@@ -812,7 +813,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.23";
+var VERSAO = "2026-09-20.24";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2637,8 +2638,24 @@ function renderColecao(){
 }
 function abrirColecao(){ renderColecao(); $("colOverlay").hidden = false; }
 function fecharColecao(){ $("colOverlay").hidden = true; }
+/* Reset total — apaga índice e cada imagem guardada, e a cache em
+   memória desta sessão. Útil ao mudar o estilo do prompt no worker.js:
+   sem isto, os pósteres antigos ficavam para sempre (é a ideia do
+   cache "uma vez por tipo"), mesmo depois de o estilo mudar. */
+function limparColecao(){
+  var idx = lerIndiceColecao();
+  if (!idx.length){ return; }
+  if (!confirm("Apagar os " + idx.length + " pósteres guardados? Não é reversível — a próxima vez que abrires cada tipo, gera-se de novo.")) return;
+  try {
+    idx.forEach(function(tipo){ localStorage.removeItem(posterKey(tipo)); });
+    localStorage.removeItem("sitrep_poster_index");
+  } catch(e){}
+  posterCache = {};
+  renderColecao();
+}
 $("btnColecao").addEventListener("click", abrirColecao);
 $("colFechar").addEventListener("click", fecharColecao);
+$("colLimpar").addEventListener("click", limparColecao);
 $("colOverlay").addEventListener("click", function(e){ if (e.target === this) fecharColecao(); });
 document.addEventListener("keydown", function(e){
   if (e.key === "Escape" && !$("colOverlay").hidden) fecharColecao();
