@@ -845,7 +845,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.34";
+var VERSAO = "2026-09-20.35";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2781,8 +2781,18 @@ function loadPhoto(box, hex, reg, tipo, tipoIcao){
    configurado, ou sem o binding AI ativo nesse Worker, fica
    silenciosamente vazio — nunca quebra o resto do popup. */
 function posterKey(tipo){ return "sitrep_poster_" + tipo; }
-function posterHtml(tipo, src){
-  return '<img src="'+esc(src)+'" alt="Poster vintage — '+esc(tipo)+'">'+
+function posterModoKey(tipo){ return "sitrep_poster_modo_" + tipo; }
+/* "modo" (foto | texto | texto-fallback, ver worker.js) não muda o que
+   se vê — é só um atributo title no <img>, útil para diagnosticar um
+   poster com defeito sem precisar de abrir os logs do Worker: basta
+   pairar o rato para saber se a imagem veio de image-to-image sobre
+   uma fotografia real ou só de uma descrição em texto. */
+function posterHtml(tipo, src, modo){
+  var tit = modo === "foto" ? "gerado a partir de fotografia real (image-to-image)"
+          : modo === "texto-fallback" ? "tentativa com fotografia falhou — gerado só por texto"
+          : modo === "texto" ? "gerado só por texto (sem fotografia disponível)"
+          : "";
+  return '<img src="'+esc(src)+'" alt="Poster vintage — '+esc(tipo)+'"'+(tit?' title="'+esc(tit)+'"':'')+'>'+
          '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+'</div>';
 }
 /* O modelo de imagem já inventou datas ("2027 - 2916") e uma matrícula
@@ -2855,10 +2865,13 @@ function registarNaColecao(tipo){
 function loadPoster(box, tipo, descricao, tipoIcao){
   if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
   if (posterCache[tipo] !== undefined){ box.innerHTML = posterCache[tipo] || ""; return; }
-  var guardado = null;
-  try { guardado = localStorage.getItem(posterKey(tipo)); } catch(e){}
+  var guardado = null, modoGuardado = null;
+  try {
+    guardado = localStorage.getItem(posterKey(tipo));
+    modoGuardado = localStorage.getItem(posterModoKey(tipo));
+  } catch(e){}
   if (guardado){
-    var html = posterHtml(tipo, guardado);
+    var html = posterHtml(tipo, guardado, modoGuardado);
     posterCache[tipo] = html; box.innerHTML = html; return;
   }
   if (!proxyProprio){ posterCache[tipo] = ""; box.innerHTML=""; return; }
@@ -2885,11 +2898,16 @@ function loadPoster(box, tipo, descricao, tipoIcao){
     clearTimeout(relogio); return r.json();
   }).then(function(j){
     if (!j || !j.image){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
+    var modo = j.modo || "";
     return compositarPoster(j.image, tipo).then(function(src){
       if (!src){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
-      var html = posterHtml(tipo, src);
+      var html = posterHtml(tipo, src, modo);
       posterCache[tipo] = html; box.innerHTML = html;
-      try { localStorage.setItem(posterKey(tipo), src); registarNaColecao(tipo); }
+      try {
+        localStorage.setItem(posterKey(tipo), src);
+        if (modo) localStorage.setItem(posterModoKey(tipo), modo);
+        registarNaColecao(tipo);
+      }
       catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
     });
   }).catch(function(){ clearTimeout(relogio); posterCache[tipo] = ""; box.innerHTML = ""; });
@@ -2968,7 +2986,7 @@ function limparColecao(){
   if (!idx.length){ return; }
   if (!confirm("Apagar os " + idx.length + " pósteres guardados? Não é reversível — a próxima vez que abrires cada tipo, gera-se de novo.")) return;
   try {
-    idx.forEach(function(tipo){ localStorage.removeItem(posterKey(tipo)); });
+    idx.forEach(function(tipo){ localStorage.removeItem(posterKey(tipo)); localStorage.removeItem(posterModoKey(tipo)); });
     localStorage.removeItem("sitrep_poster_index");
   } catch(e){}
   posterCache = {};
