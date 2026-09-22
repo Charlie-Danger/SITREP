@@ -845,7 +845,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.28";
+var VERSAO = "2026-09-20.29";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1020,6 +1020,35 @@ function posterNome(x){
   if (x.reason === "tipo") return x.label;
   var t = ((x.a && x.a.t) || "").toUpperCase();
   return POSTER_NOMES[t] || "";
+}
+
+/* Pista extra de forma para tipos onde o nome sozinho engana um modelo
+   pequeno — configurações raras nos dados de treino (ex.: um Falcon
+   900 saiu com dois motores em vez de três, o Cessna 172 saiu com asa
+   baixa em vez de alta). Só para os casos onde isto é conhecido e
+   verificável (contagem/posição de motores, configuração de asa) —
+   nunca um adjetivo vago. Não afeta o nome mostrado nem a chave da
+   cache; só o que se manda ao Worker para compor o prompt. */
+var POSTER_FORMAS = {
+  F900:"a trijet business jet with three engines: two mounted on the rear fuselage and one at the base of the T-tail",
+  FA7X:"a trijet business jet with three engines: two mounted on the rear fuselage and one at the base of the T-tail",
+  C172:"a high-wing single-engine light aircraft with a strut-braced wing and fixed tricycle landing gear",
+  C152:"a high-wing single-engine light aircraft with a strut-braced wing and fixed tricycle landing gear",
+  C182:"a high-wing single-engine light aircraft with a strut-braced wing and fixed tricycle landing gear",
+  R44:"a light helicopter with a single main rotor and skid landing gear, no fixed wings",
+  R66:"a light helicopter with a single main rotor and skid landing gear, no fixed wings",
+  EC20:"a light helicopter with a single main rotor and skid landing gear, no fixed wings",
+  H120:"a light helicopter with a single main rotor and skid landing gear, no fixed wings"
+};
+/* Descrição a enviar ao Worker — nome + forma, quando houver. O nome
+   sozinho (posterNome) continua a ser o que aparece escrito e o que
+   identifica a entrada na Coleção; isto é só para o prompt de imagem. */
+function posterDescricao(x){
+  var nome = posterNome(x);
+  if (!nome) return "";
+  var t = ((x.a && x.a.t) || "").toUpperCase();
+  var forma = POSTER_FORMAS[t];
+  return forma ? (nome + ", " + forma) : nome;
 }
 
 /* ---------- "interesse": squawk de emergência + raridade de tipo ----------
@@ -2764,7 +2793,7 @@ function registarNaColecao(tipo){
     try { localStorage.setItem("sitrep_poster_index", JSON.stringify(idx)); } catch(e){}
   }
 }
-function loadPoster(box, tipo){
+function loadPoster(box, tipo, descricao){
   if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
   if (posterCache[tipo] !== undefined){ box.innerHTML = posterCache[tipo] || ""; return; }
   var guardado = null;
@@ -2775,7 +2804,10 @@ function loadPoster(box, tipo){
   }
   if (!proxyProprio){ posterCache[tipo] = ""; box.innerHTML=""; return; }
   box.innerHTML = '<div class="pp-poster-wait">a gerar poster vintage…</div>';
-  var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(tipo);
+  /* "descricao" (nome + eventual pista de forma) só serve para compor
+     o prompt de imagem no Worker — a legenda e a chave de cache usam
+     sempre "tipo" (só o nome), nunca a descrição alargada */
+  var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(descricao || tipo);
   fetch(u).then(function(r){ return r.json(); }).then(function(j){
     if (!j || !j.image){ posterCache[tipo] = ""; box.innerHTML = ""; return; }
     return compositarPoster(j.image, tipo).then(function(src){
@@ -2794,7 +2826,7 @@ function onPopupOpen(e){
   if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg, pp.dataset.type);
   /* postertipo vem vazio quando não há nome descritivo de confiança —
      loadPoster já trata "" como "não gerar nada", ver mais abaixo */
-  if (pp && boxP) loadPoster(boxP, pp.dataset.postertipo);
+  if (pp && boxP) loadPoster(boxP, pp.dataset.postertipo, pp.dataset.posterdesc);
 }
 mapS.on("popupopen", onPopupOpen);
 
@@ -2888,7 +2920,8 @@ function acPopup(x){
   var id=(a.flight||"").trim()||a.r||a.hex||"—";
   var alt=a.alt_baro==="ground"?"no solo":Math.round(num(a.alt_baro))+" ft";
   return '<div class="pp" data-hex="'+esc(a.hex||"")+'" data-reg="'+esc(a.r||"")+
-    '" data-type="'+esc(x.label||"")+'" data-postertipo="'+esc(posterNome(x))+'">'+
+    '" data-type="'+esc(x.label||"")+'" data-postertipo="'+esc(posterNome(x))+
+    '" data-posterdesc="'+esc(posterDescricao(x))+'">'+
     '<b>'+esc(id)+'</b><br><span class="mono">'+esc(x.label)+(a.r?" · "+esc(a.r):"")+'</span><br>'+
     '<span class="mono">'+alt+' · '+Math.round(num(a.gs))+' kt · rumo '+
       Math.round(num(a.track))+'°</span><br>'+
