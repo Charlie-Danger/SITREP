@@ -812,7 +812,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.22";
+var VERSAO = "2026-09-20.23";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -887,7 +887,12 @@ var ADSB = [
 var PROXY_PADRAO = "https://sitrep-proxy.pinto-carlosandre.workers.dev";
 var proxyProprio = PROXY_PADRAO;
 try {
-  var proxyGuardado = localStorage.getItem("sitrep_proxy");
+  /* normalizarProxy está definida mais abaixo no ficheiro, mas
+     declarações de função sobem para o topo do bloco <script> — pode
+     usar-se aqui sem problema. Corrige à entrada um valor que tenha
+     ficado gravado sem "https://" em sessões anteriores (auto-cura,
+     sem precisar de limpar o localStorage à mão). */
+  var proxyGuardado = normalizarProxy(localStorage.getItem("sitrep_proxy"));
   if (proxyGuardado) proxyProprio = proxyGuardado;
 } catch(e){}
 
@@ -900,7 +905,7 @@ try {
 var PROXY_PADRAO_2 = "";
 var proxyProprio2 = PROXY_PADRAO_2;
 try {
-  var proxyGuardado2 = localStorage.getItem("sitrep_proxy2");
+  var proxyGuardado2 = normalizarProxy(localStorage.getItem("sitrep_proxy2"));
   if (proxyGuardado2) proxyProprio2 = proxyGuardado2;
 } catch(e){}
 
@@ -3453,9 +3458,21 @@ $("btnFires").addEventListener("click", function(){
 });
 
 /* ---------- chave do ADSBx ---------- */
+/* Um endereço de proxy sem "http(s)://" não é rejeitado pelo browser —
+   fica silenciosamente resolvido como caminho RELATIVO à própria página
+   (ex.: "charlie-danger.github.io/SITREP/sitrep-proxy...workers.dev/..."),
+   o que dá 404 em tudo, disfarçado de "proxies indisponíveis". Já
+   aconteceu na prática. Em vez de confiar que quem cola o endereço
+   nunca esquece o esquema, corrige-se aqui, ao guardar. */
+function normalizarProxy(v){
+  v = (v||"").trim().replace(/\/+$/,"");
+  if (v && !/^https?:\/\//i.test(v)) v = "https://" + v;
+  return v;
+}
 $("proxySave").addEventListener("click", function(){
-  var v = $("proxyIn").value.trim();
+  var v = normalizarProxy($("proxyIn").value);
   proxyProprio = v || PROXY_PADRAO;   /* vazio não desliga, volta ao por omissão */
+  $("proxyIn").value = proxyProprio;
   try {
     if (v) localStorage.setItem("sitrep_proxy", v);
     else localStorage.removeItem("sitrep_proxy");
@@ -3466,8 +3483,9 @@ $("proxySave").addEventListener("click", function(){
   refreshAll(true);
 });
 $("proxySave2").addEventListener("click", function(){
-  var v = $("proxyIn2").value.trim();
+  var v = normalizarProxy($("proxyIn2").value);
   proxyProprio2 = v || PROXY_PADRAO_2;   /* vazio desliga a segunda fonte, não há omissão para ela */
+  $("proxyIn2").value = proxyProprio2;
   try {
     if (v) localStorage.setItem("sitrep_proxy2", v);
     else localStorage.removeItem("sitrep_proxy2");
