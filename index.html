@@ -845,7 +845,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.27";
+var VERSAO = "2026-09-20.28";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2713,6 +2713,8 @@ function compositarPoster(base64, tipo){
         var cv = document.createElement("canvas");
         cv.width = w; cv.height = h;
         var ctx = cv.getContext("2d");
+        if (!ctx) throw new Error("getContext(\"2d\") devolveu null — provável bloqueio " +
+          "de fingerprinting do browser/extensão (ex.: Brave, alguns modos de privacidade)");
         ctx.drawImage(img, 0, 0, w, h);
         var barraH = Math.round(h * 0.16);
         var grad = ctx.createLinearGradient(0, h-barraH, 0, h);
@@ -2735,6 +2737,11 @@ function compositarPoster(base64, tipo){
         ctx.fillText(tipo, w/2, h - barraH*0.34);
         resolve(cv.toDataURL("image/jpeg", 0.9));
       } catch(e){
+        /* Não engolir em silêncio — sem isto, "falhou" e "correu bem mas
+           sem texto" ficavam indistinguíveis, e foi exatamente essa
+           ambiguidade que atrasou perceber que isto não estava a
+           funcionar. */
+        console.warn("SITREP: compositarPoster falhou, a usar a imagem crua (sem nome sobreposto):", e);
         resolve("data:image/jpeg;charset=utf-8;base64,"+base64);
       }
     };
