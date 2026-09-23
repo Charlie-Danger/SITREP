@@ -811,7 +811,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       </button>
       <div id="rCorpo">
         <div class="tbl-h">
-          <span>Indicativo</span><span>Tipo</span><span class="n srt" id="rSrtDist" data-k="dist">Dist</span><span class="n srt" id="rSrtAlt" data-k="alt">Alt</span><span class="n">Vel</span><span class="n">AGL</span>
+          <span>Indicativo</span><span>Tipo</span><span class="n srt" id="rSrtDist" data-k="dist" title="quilómetros">Dist</span><span class="n srt" id="rSrtAlt" data-k="alt" title="pés (altitude barométrica)">Alt</span><span class="n" title="quilómetros/hora">Vel</span><span class="n" title="metros sobre o solo">AGL</span>
         </div>
         <div id="rRows"><div class="empty">A contactar rede ADS-B…</div></div>
       </div>
@@ -826,6 +826,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       <div class="hsub" style="color:var(--drop)">━ eixo de descargas</div>
       <div class="hsub" style="color:var(--orange)">◉ ocorrência ativa</div>
       <div class="hsub" id="rEscala">anéis —</div>
+      <div class="hsub" style="opacity:.7">Dist km · Alt ft · Vel km/h · AGL m</div>
     </div>
   </div>
 </div>
@@ -846,7 +847,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.37";
+var VERSAO = "2026-09-20.41";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -881,6 +882,10 @@ var AC_PAR         = 2;    /* redes ADS-B lançadas em paralelo */
 var AC_GRACA_MS    = 1500; /* espera pela segunda rede depois da primeira */
 var FT_M           = 0.3048;
 var NM_M           = 1852;
+/* gs (ADS-B, sempre em nós) mostrado ao utilizador em km/h — internamente
+   fica tudo em nós (classify() usa limiares em nós), só a apresentação
+   muda. 1 nó = 1 milha náutica/h = NM_M metros/h. */
+function ktKmh(v){ return Math.round(v * NM_M / 1000); }
 
 var PROCIV = "https://services-eu1.arcgis.com/VlrHb7fn5ewYhX6y/arcgis/rest/services/OcorrenciasSite/FeatureServer/0/query";
 var EFFIS  = "https://maps.effis.emergency.copernicus.eu/effis";
@@ -943,10 +948,14 @@ try {
   if (proxyGuardado2) proxyProprio2 = proxyGuardado2;
 } catch(e){}
 
+/* corsproxy.io removido em 2026-09-23: passou a exigir chave de API
+   ("A valid API key is required") mesmo em uso anónimo — confirmado
+   em produção pelo erro devolvido no F12. Sem chave configurada,
+   qualquer pedido que chegasse a este proxy falhava sempre; mantê-lo
+   na lista só acrescentava latência morta antes da falha final. */
 var PROXIES_PUB = [
   { name:"allorigins", wrap:function(u){ return "https://api.allorigins.win/raw?url="+encodeURIComponent(u); } },
-  { name:"codetabs",   wrap:function(u){ return "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u); } },
-  { name:"corsproxy",  wrap:function(u){ return "https://corsproxy.io/?url="+encodeURIComponent(u); } }
+  { name:"codetabs",   wrap:function(u){ return "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u); } }
 ];
 
 function ehProprio(nome){ return nome === "próprio" || nome === "próprio-2"; }
@@ -3092,7 +3101,7 @@ function acPopup(x){
     '" data-postertipo="'+esc(posterNome(x))+
     '" data-posterdesc="'+esc(posterDescricao(x))+'">'+
     '<b>'+esc(id)+'</b><br><span class="mono">'+esc(x.label)+(a.r?" · "+esc(a.r):"")+'</span><br>'+
-    '<span class="mono">'+alt+' · '+Math.round(num(a.gs))+' kt · rumo '+
+    '<span class="mono">'+alt+' · '+ktKmh(num(a.gs))+' km/h · rumo '+
       Math.round(num(a.track))+'°</span><br>'+
     '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s</span><br>'+
     '<span class="mono">'+(x.fire ? (x.reason==="tipo"
@@ -3354,7 +3363,7 @@ function renderAircraft(){
             '<path d="M12 11 L14 20 L12 18.8 L10 20 Z" fill="'+col+'" opacity="0.75"/></svg></div>'+
           '<div class="ac-main"><div class="ac-id">'+esc(id)+'</div>'+
           '<div class="ac-sub">'+esc(x.label)+(a.r?' · '+esc(a.r):'')+' · '+
-            Math.round(num(a.gs))+' kt · '+x.dist.toFixed(0)+' km'+
+            ktKmh(num(a.gs))+' km/h · '+x.dist.toFixed(0)+' km'+
             (num(a.seen_pos)>20?' · há '+Math.round(num(a.seen_pos))+' s':'')+'</div></div>'+
           '<div class="ac-alt">'+alt+'</div></div>';
       }
@@ -3374,11 +3383,11 @@ function renderAircraft(){
     $("rNfire").textContent = String(nFire);
     $("rSrc").textContent = acSource+" · "+ADSB_RADIUS_NM+" NM · posições com "+med+" s";
 
-    [["rSrtDist","dist"],["rSrtAlt","alt"]].forEach(function(p){
+    [["rSrtDist","dist","Dist"],["rSrtAlt","alt","Alt"]].forEach(function(p){
       var el = $(p[0]); if (!el) return;
       var ativo = rSort.by === p[1];
       el.classList.toggle("on", ativo);
-      el.textContent = (p[1]==="dist"?"Dist":"Alt") + (ativo ? (rSort.dir>0?" ▲":" ▼") : "");
+      el.textContent = p[2] + (ativo ? (rSort.dir>0?" ▲":" ▼") : "");
     });
 
     var listaR = acs.slice();
@@ -3404,7 +3413,7 @@ function renderAircraft(){
          indicativo: nível e velocidade estão na tabela, que é onde se
          comparam, e duas linhas por contacto enchiam o mapa. */
       var estreito = window.innerWidth <= 760;
-      var txt = estreito ? esc(id) : esc(id)+"<br>"+fl+"  "+Math.round(num(a.gs));
+      var txt = estreito ? esc(id) : esc(id)+"<br>"+fl+"  "+ktKmh(num(a.gs));
 
       if (idx < 22){
         var tk = tracks[key], ag = "—";
@@ -3418,7 +3427,7 @@ function renderAircraft(){
           '<span class="cs">'+esc(id)+'</span><span class="ty">'+esc(x.label)+'</span>'+
           '<span class="n">'+x.dist.toFixed(0)+'</span>'+
           '<span class="n">'+(a.alt_baro==="ground"?"solo":Math.round(num(a.alt_baro)).toLocaleString("pt-PT"))+'</span>'+
-          '<span class="n">'+Math.round(num(a.gs))+'</span><span class="n">'+ag+'</span></div>';
+          '<span class="n">'+ktKmh(num(a.gs))+'</span><span class="n">'+ag+'</span></div>';
       }
       upsert(marksR, gAcR, key, x, col, txt, true, acPopup(x));
     });
@@ -4011,15 +4020,32 @@ function refreshAll(forcar){
 }
 
 var pendingResume = [];
+/* Cada ciclo agendado regista aqui uma forma de se reiniciar à força,
+   cancelando o temporizador pendente (se ainda existir) e arrancando
+   de novo. Isto é a rede de segurança para quando o browser MATA o
+   setTimeout por completo em vez de só o atrasar — o caso típico é o
+   Safari/iOS a congelar a página no bfcache ao trocar de app ou
+   bloquear o ecrã: o callback nunca chega a correr, por isso nunca se
+   auto-regista em pendingResume, e sem isto o ciclo fica morto para
+   sempre até a pessoa recarregar a página à mão (o sintoma "só
+   funciona uma vez por dia" em telemóvel). */
+var reiniciarLoops = [];
 function schedule(fn, base, delay){
-  (function loop(){
+  var tid = null;
+  function loop(){
     var d = (delay ? delay(base) : base) + Math.floor(Math.random()*2000);
-    setTimeout(function(){
+    tid = setTimeout(function(){
+      tid = null;
       if (document.hidden){ pendingResume.push(loop); return; }
       var p; try { p = fn(); } catch(e){ p = null; }
       (p && p.then ? p : Promise.resolve()).then(loop, loop);
     }, d);
-  })();
+  }
+  loop();
+  reiniciarLoops.push(function(){
+    if (tid !== null){ clearTimeout(tid); tid = null; }
+    loop();
+  });
 }
 
 var wakeLock = null;
@@ -4030,15 +4056,33 @@ function askWake(){
     w.addEventListener("release", function(){ wakeLock = null; });
   }).catch(function(){});
 }
+/* Chamado em qualquer sinal de "a página voltou a estar visível" —
+   visibilitychange normal E pageshow (bfcache). Reinicia sempre TODOS
+   os ciclos agendados, não só os que se auto-pausaram: é redundante
+   no caso normal (o loop já ia recomeçar sozinho), mas é a única
+   forma de garantir que nenhum fica morto no caso do bfcache. */
+function retomarTudo(){
+  askWake();
+  var q = pendingResume; pendingResume = [];
+  q.forEach(function(loop){ loop(); });
+  reiniciarLoops.forEach(function(reiniciar){ reiniciar(); });
+  refreshAll();
+}
 document.addEventListener("visibilitychange", function(){
   if (document.hidden){
     if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
     return;
   }
-  askWake();
-  var q = pendingResume; pendingResume = [];
-  q.forEach(function(loop){ loop(); });
-  refreshAll();
+  retomarTudo();
+});
+/* pageshow dispara sempre que a página é exibida, incluindo quando é
+   restaurada do bfcache — o caso em que visibilitychange pode não
+   disparar da forma esperada (comportamento conhecido do Safari/iOS).
+   event.persisted=true confirma que veio do bfcache, mas reage-se da
+   mesma forma em qualquer caso: retomar tudo nunca faz mal a mais. */
+window.addEventListener("pageshow", function(){
+  if (document.hidden) return;
+  retomarTudo();
 });
 
 /* ---------- instalação e estado da ligação ---------- */
