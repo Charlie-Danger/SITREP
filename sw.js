@@ -36,7 +36,6 @@ var DADOS = [
   "adsbexchange-com1.p.rapidapi.com",
   "api.allorigins.win",
   "api.codetabs.com",
-  "corsproxy.io",
   "workers.dev",
   "deno.dev"
 ];
