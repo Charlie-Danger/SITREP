@@ -189,8 +189,8 @@ body.dia .seg button[aria-pressed="true"]{color:#FBFAF7}
 .colOverlay[hidden]{display:none}
 .colPanel{
   background:var(--panel);border:1px solid var(--rule-hi);border-radius:3px;
-  width:100%;max-width:920px;max-height:100%;
-  display:flex;flex-direction:column;
+  width:100%;max-width:1120px;max-height:100%;
+  display:flex;flex-direction:column;overflow:hidden;
 }
 .colHead{
   display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
@@ -204,41 +204,68 @@ body.dia .seg button[aria-pressed="true"]{color:#FBFAF7}
   font-family:var(--f-mono);font-size:11px;color:var(--ink-mute);flex:1;
 }
 .colHead #colLimpar{margin-left:auto}
+
+/* Duas colunas lado a lado num ecrã largo: galeria à esquerda, lista
+   de tipos avistados à direita — clicar numa linha salta e destaca o
+   poster correspondente. Em ecrã estreito volta ao empilhado de
+   sempre (galeria em cima, lista em baixo), a rolar como uma página
+   só — é o que já funcionava bem em telemóvel, sem motivo para mexer. */
+.colBody{display:flex;flex:1;min-height:0}
+.colGridPane{flex:1 1 62%;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 .colGrid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
-  gap:12px;padding:14px var(--gut) 18px;overflow-y:auto;
+  flex:1;min-height:0;overflow-y:auto;align-content:start;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+  gap:12px;padding:14px var(--gut) 18px;
 }
 .colCard{
   background:var(--panel-2);border:1px solid var(--rule-hi);border-radius:2px;
   overflow:hidden;display:flex;flex-direction:column;
+  transition:transform .18s ease, box-shadow .18s ease;
 }
 .colCard img{display:block;width:100%;height:auto;aspect-ratio:1/1;object-fit:cover}
 .colCard .colLbl{
   font-family:var(--f-mono);font-size:10.5px;color:var(--ink-mid);
   padding:6px 8px;line-height:1.35;
 }
+.colCard.emFoco{
+  transform:scale(1.14);z-index:3;position:relative;
+  box-shadow:0 0 0 2px var(--orange), 0 10px 26px rgba(0,0,0,.55);
+}
 .colEmpty{
   padding:32px var(--gut);text-align:center;
   font-family:var(--f-mono);font-size:11.5px;color:var(--ink-mute);line-height:1.7;
 }
+.colLogPane{
+  flex:0 0 320px;min-width:0;display:flex;flex-direction:column;
+  border-left:1px solid var(--rule);overflow:hidden;
+}
 .colLogHead{
-  padding:16px var(--gut) 4px;border-top:1px solid var(--rule);
+  padding:14px var(--gut) 4px;border-top:none;flex:none;
 }
 .colLogHead h3{
   font-family:var(--f-cond);font-size:13px;font-weight:700;
   letter-spacing:.05em;text-transform:uppercase;color:var(--ink);margin:0 0 3px;
 }
 .colLogNote{font-family:var(--f-mono);font-size:10px;color:var(--ink-mute)}
-.colLog{padding:6px var(--gut) 16px;overflow-y:auto}
+.colLog{flex:1;min-height:0;overflow-y:auto;padding:6px var(--gut) 16px}
 .colLogRow{
-  display:flex;align-items:baseline;gap:8px;padding:5px 0;
+  display:flex;align-items:baseline;gap:8px;padding:5px 0;cursor:pointer;
   border-bottom:1px solid var(--rule);font-family:var(--f-mono);font-size:11px;
 }
+.colLogRow:hover{background:rgba(255,167,51,.08)}
 .colLogRow .clCod{font-weight:700;color:var(--ink);flex:0 0 46px}
 .colLogRow .clNome{flex:1;min-width:0;color:var(--ink-mid);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .colLogRow .clNome.semNome{color:var(--ink-mute);font-style:italic}
 .colLogRow .clN{flex:0 0 auto;color:var(--ink-mute)}
+
+@media (max-width:760px){
+  .colBody{flex-direction:column;overflow-y:auto}
+  .colGridPane{flex:none;overflow:visible}
+  .colGrid{overflow:visible;flex:none;min-height:0}
+  .colLogPane{flex:none;border-left:none;border-top:1px solid var(--rule);overflow:visible}
+  .colLog{overflow:visible;flex:none}
+}
 
 /* ---------- mapas ---------- */
 .mapwrap{position:relative}
@@ -689,12 +716,18 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       <button class="btn" id="colLimpar" type="button" title="Apaga todos os pósteres guardados — útil ao mudar de estilo">Limpar coleção</button>
       <button class="btn" id="colFechar" type="button">Fechar</button>
     </div>
-    <div class="colGrid" id="colGrid"></div>
-    <div class="colLogHead">
-      <h3>Tipos avistados</h3>
-      <span class="colLogNote">aeronaves distintas por tipo, dos menos vistos aos mais vistos — útil para decidir o que acrescentar ao POSTER_NOMES</span>
+    <div class="colBody">
+      <div class="colGridPane">
+        <div class="colGrid" id="colGrid"></div>
+      </div>
+      <div class="colLogPane">
+        <div class="colLogHead">
+          <h3>Tipos avistados</h3>
+          <span class="colLogNote">aeronaves distintas por tipo, dos menos vistos aos mais vistos — clica numa linha para saltar ao poster</span>
+        </div>
+        <div class="colLog" id="colLog"></div>
+      </div>
     </div>
-    <div class="colLog" id="colLog"></div>
   </div>
 </div>
 
@@ -870,7 +903,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.44";
+var VERSAO = "2026-09-20.45";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -3041,7 +3074,7 @@ function renderColecao(){
     var src = null;
     try { src = localStorage.getItem(posterKey(tipo)); } catch(e){}
     if (!src) return; /* índice e imagem dessincronizados — não mostra buraco */
-    html += '<div class="colCard"><img src="'+esc(src)+'" alt="Poster — '+esc(tipo)+'">'+
+    html += '<div class="colCard" id="colCard-'+esc(tipo)+'"><img src="'+esc(src)+'" alt="Poster — '+esc(tipo)+'">'+
             '<div class="colLbl">'+esc(tipo)+'</div></div>';
   });
   grid.innerHTML = html || '<div class="colEmpty">Ainda sem pósteres guardados.</div>';
@@ -3070,12 +3103,25 @@ function renderTipoLogPainel(){
     return;
   }
   el.innerHTML = linhas.map(function(l){
-    return '<div class="colLogRow"><span class="clCod">'+esc(l.t)+'</span>'+
+    return '<div class="colLogRow" data-tipo="'+esc(l.t)+'"><span class="clCod">'+esc(l.t)+'</span>'+
       '<span class="clNome'+(l.nome?"":" semNome")+'">'+
         esc(l.nome || "sem nome mapeado"+(l.reg?" · ex.: "+l.reg:""))+'</span>'+
       '<span class="clN">'+l.n+(l.n===1?" aeronave":" aeronaves")+
         ' · há '+haQuanto(agora-l.ultimo)+'</span></div>';
   }).join("");
+}
+/* Clicar numa linha da lista "Tipos avistados" salta ao poster
+   correspondente na galeria e destaca-o brevemente (maior, com
+   contorno) — só funciona para tipos que já têm poster gerado; para
+   os restantes (log tem entrada, galeria não) não faz nada, em vez de
+   fingir um destaque sobre um cartão que não existe. */
+function focarPoster(tipo){
+  var card = document.getElementById("colCard-"+tipo);
+  if (!card) return;
+  var atual = document.querySelector(".colCard.emFoco");
+  if (atual && atual !== card) atual.classList.remove("emFoco");
+  card.classList.add("emFoco");
+  card.scrollIntoView({ behavior:"smooth", block:"center", inline:"nearest" });
 }
 function abrirColecao(){ renderColecao(); renderTipoLogPainel(); $("colOverlay").hidden = false; }
 function fecharColecao(){ $("colOverlay").hidden = true; }
@@ -3101,6 +3147,10 @@ function limparColecao(){
 $("btnColecao").addEventListener("click", abrirColecao);
 $("colFechar").addEventListener("click", fecharColecao);
 $("colLimpar").addEventListener("click", limparColecao);
+$("colLog").addEventListener("click", function(e){
+  var row = e.target.closest(".colLogRow");
+  if (row) focarPoster(row.getAttribute("data-tipo"));
+});
 $("colOverlay").addEventListener("click", function(e){ if (e.target === this) fecharColecao(); });
 document.addEventListener("keydown", function(e){
   if (e.key === "Escape" && !$("colOverlay").hidden) fecharColecao();
