@@ -352,6 +352,10 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .pp-poster-lbl{font-size:9.5px;color:var(--ink-mute);margin-top:3px;
                font-style:italic;font-family:var(--f-mono)}
 .pp-poster-tmp{color:var(--orange, #c77)}
+.pp-poster-regen{margin-left:6px;font-size:9.5px;color:var(--ink-mute);background:none;
+  border:1px solid var(--rule-hi);border-radius:3px;padding:1px 5px;cursor:pointer;
+  font-family:inherit;line-height:1.5}
+.pp-poster-regen:hover{color:var(--ink);border-color:var(--ink-mute)}
 .pp-poster-wait{font-size:10px;color:var(--ink-mute);margin-top:6px;font-style:italic}
 
 /* ---------- painéis do SITREP ---------- */
@@ -903,7 +907,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.47";
+var VERSAO = "2026-09-20.49";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1045,8 +1049,8 @@ var FIRE_TYPES = {
   IL76:"Il-76", C130:"C-130 Hercules", B733:"B737 Fireliner"
 };
 
-/* Nomes descritivos para o poster (silhueta por categoria) — tabela
-   SEPARADA do FIRE_TYPES de propósito: aquele serve para classificar combate a
+/* Nomes descritivos para o poster vintage — tabela SEPARADA do
+   FIRE_TYPES de propósito: aquele serve para classificar combate a
    incêndios, e um A321 da TAP não pode ganhar essa bandeira só para
    ter nome bonito num poster. Cobre os tipos mais comuns no espaço
    aéreo português (tráfego comercial + aviação ligeira). Fora desta
@@ -1260,7 +1264,14 @@ var photoCache = {};      // chave: HEX ou matrícula (maiúsculas) → HTML da 
 var photoTipoCache = {};  // chave: rótulo do tipo (x.label, já normalizado por FIRE_TYPES) →
                            // HTML da primeira foto real vista desse modelo, para servir de
                            // "foto genérica" a outras aeronaves do mesmo tipo sem foto própria
-var posterCache = {};     // chave: rótulo do tipo → HTML da silhueta por categoria
+var photoTipoRefCache = {}; // chave: tipo (código ICAO cru, maiúsculas) → URL da miniatura
+                           // pequena (não a "large") da primeira foto real vista desse tipo.
+                           // Serve só para o Worker usar como referência no poster
+                           // image-to-image (ver loadPoster) — nunca é mostrada ao utilizador.
+var photoTipoRefPromise = {}; // chave: mesmo tipo → promessa da procura de foto em curso,
+                           // enquanto photoTipoRefCache[tipo] ainda está undefined. Corrige a
+                           // corrida entre loadPhoto e loadPoster (ver loadPhoto).
+var posterCache = {};     // chave: rótulo do tipo → HTML do poster vintage gerado por IA
                            // (espelha localStorage; ver loadPoster)
 var radarReady = false;
 /* ordenação da tabela "Contactos" no radar — local a esta vista, nunca
@@ -2812,18 +2823,30 @@ function fotoGenerica(tipo){
   if (!html) return "";
   return '<div class="pp-gen-note">foto genérica do modelo — não é esta aeronave</div>' + html;
 }
-function loadPhoto(box, hex, reg, tipo){
+function loadPhoto(box, hex, reg, tipo, tipoIcao){
   var key = (hex||reg||"").toUpperCase();
   if (!key) return;
   if (photoCache[key] !== undefined){ box.innerHTML = photoCache[key] || fotoGenerica(tipo); return; }
   box.innerHTML = '<div class="pp-wait">a procurar fotografia…</div>';
   var u = hex ? "https://api.planespotters.net/pub/photos/hex/"+encodeURIComponent(hex)
               : "https://api.planespotters.net/pub/photos/reg/"+encodeURIComponent(reg);
-  fetchVia(u, 9000).then(function(r){
+  var promessa = fetchVia(u, 9000).then(function(r){
     var ph = (r.data && r.data.photos && r.data.photos[0]) || null;
     var src = ph && ((ph.thumbnail_large && ph.thumbnail_large.src) ||
                      (ph.thumbnail && ph.thumbnail.src));
-    if (!src){ photoCache[key]=""; box.innerHTML = fotoGenerica(tipo); return; }
+    if (!src){
+      if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined) photoTipoRefCache[tipoIcao] = "";
+      photoCache[key]=""; box.innerHTML = fotoGenerica(tipo); return;
+    }
+    /* Para referência do poster (image-to-image) guarda-se de propósito
+       a miniatura PEQUENA ("thumbnail"), não a "large" usada para
+       mostrar ao utilizador — o modelo de imagem exige entrada menor
+       que 512×512 e a "thumbnail" tem mais probabilidade de já vir
+       nesse tamanho (ver gerarPosterComFoto no worker.js). */
+    if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined){
+      var refSrc = (ph.thumbnail && ph.thumbnail.src) || (ph.thumbnail_large && ph.thumbnail_large.src) || "";
+      photoTipoRefCache[tipoIcao] = refSrc;
+    }
     var html = '<a href="'+esc(ph.link||"#")+'" target="_blank" rel="noopener">'+
                '<img class="pp-img" src="'+esc(src)+'" alt="Fotografia da aeronave" loading="lazy"></a>'+
                '<div class="pp-cred">© '+esc(ph.photographer||"desconhecido")+' · Planespotters</div>';
@@ -2832,312 +2855,256 @@ function loadPhoto(box, hex, reg, tipo){
       photoTipoCache[tipo] = html;
     }
   }).catch(function(){
+    if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined) photoTipoRefCache[tipoIcao] = "";
     photoCache[key]=""; box.innerHTML = fotoGenerica(tipo);
   });
+  /* Regista a promessa desta procura para quem estiver à espera dela
+     (loadPoster, chamado quase ao mesmo tempo que este loadPhoto) — sem
+     isto, um tipo visto pela primeira vez gerava quase sempre o poster
+     em modo texto (a foto ainda não tinha chegado), e como cada tipo só
+     gera uma vez para sempre, ficava preso nesse modo. */
+  if (tipoIcao) photoTipoRefPromise[tipoIcao] = promessa;
 }
-/* ---------- silhuetas por categoria (poster 100% local/determinístico) ----------
-   Substitui a geração por IA (image-to-image no worker.js): em vez de
-   pedir a um modelo de imagem para "adivinhar" a forma real da
-   aeronave a partir de uma fotografia — o que produziu configurações
-   erradas repetidamente (motores a menos, asa/imagem espelhada,
-   silhueta de um tipo completamente diferente) mesmo depois de várias
-   tentativas de correção por prompt — cada categoria tem uma silhueta
-   fixa, desenhada à mão em SVG (vista de perfil, traço geométrico
-   simples). A mesma categoria produz sempre exatamente a mesma forma:
-   zero hipótese de configuração errada, zero dependência de rede ou
-   de quota, zero custo. Em troca perde-se o detalhe fotográfico por
-   tipo exato — o rigor é ao nível da CATEGORIA (posição da asa,
-   número de motores, hélice/jato/rotor), não da aeronave individual. */
-var POSTER_CATEGORIAS = {
-  "asa-alta-mono": { nome:"Monomotor de asa alta", partes: [
-    { tipo:"poly", pts:"228,52 214,42 70,40 30,44 16,52 30,60 70,64 214,62", cor:"corpo" },
-    { tipo:"poly", pts:"188,26 96,24 86,32 96,38 188,38", cor:"asa" },
-    { tipo:"linha", x1:130, y1:38, x2:130, y2:41 },
-    { tipo:"poly", pts:"32,44 22,16 34,16 40,44", cor:"corpo" },
-    { tipo:"poly", pts:"14,54 40,50 40,56 14,58", cor:"asa" },
-    { tipo:"ellipse", cx:224, cy:52, rx:8, ry:11, cor:"acento" },
-    { tipo:"poly", pts:"232,30 235,52 232,74 229,52", cor:"detalhe" },
-    { tipo:"linha", x1:70, y1:63, x2:70, y2:78 }, { tipo:"roda", cx:70, cy:80 },
-    { tipo:"linha", x1:172, y1:63, x2:180, y2:78 }, { tipo:"roda", cx:182, cy:80 },
-    { tipo:"linha", x1:204, y1:58, x2:210, y2:70 }, { tipo:"roda", cx:212, cy:72, r:4 }
-  ]},
-  "asa-baixa-mono": { nome:"Monomotor de asa baixa", partes: [
-    { tipo:"poly", pts:"228,50 214,40 70,38 30,42 16,50 30,58 70,62 214,60", cor:"corpo" },
-    { tipo:"poly", pts:"184,66 94,64 84,74 94,78 184,78", cor:"asa" },
-    { tipo:"poly", pts:"32,42 22,14 34,14 40,42", cor:"corpo" },
-    { tipo:"poly", pts:"14,50 40,47 40,53 14,55", cor:"asa" },
-    { tipo:"ellipse", cx:224, cy:50, rx:8, ry:10, cor:"acento" },
-    { tipo:"poly", pts:"232,28 235,50 232,72 229,50", cor:"detalhe" },
-    { tipo:"linha", x1:96, y1:66, x2:96, y2:80 }, { tipo:"roda", cx:96, cy:82 },
-    { tipo:"linha", x1:178, y1:66, x2:178, y2:80 }, { tipo:"roda", cx:178, cy:82 },
-    { tipo:"linha", x1:206, y1:56, x2:212, y2:68 }, { tipo:"roda", cx:214, cy:70, r:4 }
-  ]},
-  "agricola": { nome:"Monomotor agrícola / combate a incêndios", partes: [
-    { tipo:"poly", pts:"222,48 210,36 150,34 70,40 30,48 46,58 150,60 210,58", cor:"corpo" },
-    { tipo:"ellipse", cx:145, cy:33, rx:26, ry:9, cor:"corpo" },
-    { tipo:"poly", pts:"178,58 88,56 78,64 88,68 178,68", cor:"asa" },
-    { tipo:"poly", pts:"48,58 36,20 50,20 58,58", cor:"corpo" },
-    { tipo:"poly", pts:"30,50 58,48 58,54 30,56", cor:"asa" },
-    { tipo:"ellipse", cx:216, cy:48, rx:11, ry:13, cor:"acento" },
-    { tipo:"poly", pts:"230,24 233,48 230,72 227,48", cor:"detalhe" },
-    { tipo:"linha", x1:104, y1:68, x2:100, y2:84 }, { tipo:"roda", cx:98, cy:86, r:6 },
-    { tipo:"linha", x1:168, y1:68, x2:172, y2:84 }, { tipo:"roda", cx:174, cy:86, r:6 },
-    { tipo:"linha", x1:44, y1:58, x2:40, y2:70 }, { tipo:"roda", cx:38, cy:72, r:3 }
-  ]},
-  "bimotor": { nome:"Bimotor ligeiro", partes: [
-    { tipo:"poly", pts:"226,50 212,40 70,38 30,42 16,50 30,58 70,62 212,60", cor:"corpo" },
-    { tipo:"poly", pts:"186,58 92,56 84,62 92,66 186,66", cor:"asa" },
-    { tipo:"poly", pts:"32,42 22,14 34,14 40,42", cor:"corpo" },
-    { tipo:"poly", pts:"14,50 40,47 40,53 14,55", cor:"asa" },
-    { tipo:"ellipse", cx:224, cy:50, rx:5, ry:8, cor:"corpo" },
-    { tipo:"ellipse", cx:150, cy:63, rx:12, ry:8, cor:"acento" },
-    { tipo:"poly", pts:"160,63 172,63 172,67 160,67", cor:"detalhe" },
-    { tipo:"ellipse", cx:108, cy:60, rx:12, ry:8, cor:"acento" },
-    { tipo:"poly", pts:"118,60 130,60 130,64 118,64", cor:"detalhe" },
-    { tipo:"linha", x1:98, y1:66, x2:98, y2:80 }, { tipo:"roda", cx:98, cy:82 },
-    { tipo:"linha", x1:176, y1:66, x2:176, y2:80 }, { tipo:"roda", cx:176, cy:82 },
-    { tipo:"linha", x1:204, y1:56, x2:210, y2:68 }, { tipo:"roda", cx:212, cy:70, r:4 }
-  ]},
-  "helicoptero": { nome:"Helicóptero", partes: [
-    { tipo:"poly", pts:"186,44 172,32 130,30 100,34 88,44 100,54 172,58", cor:"corpo" },
-    { tipo:"poly", pts:"100,42 30,46 30,50 100,50", cor:"corpo" },
-    { tipo:"ellipse", cx:32, cy:36, rx:2.5, ry:12, cor:"detalhe" },
-    { tipo:"linha", x1:34, y1:48, x2:34, y2:24 },
-    { tipo:"linha", x1:140, y1:30, x2:140, y2:18 },
-    { tipo:"ellipse", cx:140, cy:17, rx:100, ry:2.5, cor:"detalhe" },
-    { tipo:"linha", x1:104, y1:56, x2:180, y2:56 },
-    { tipo:"linha", x1:112, y1:50, x2:112, y2:56 },
-    { tipo:"linha", x1:168, y1:52, x2:168, y2:56 },
-    { tipo:"ellipse", cx:168, cy:42, rx:12, ry:9, cor:"acento" }
-  ]},
-  "jato": { nome:"Jato (executivo / comercial)", partes: [
-    { tipo:"poly", pts:"232,50 218,40 60,38 24,44 12,50 24,56 60,62 218,60", cor:"corpo" },
-    { tipo:"poly", pts:"170,58 100,56 60,70 78,72 150,64", cor:"asa" },
-    { tipo:"poly", pts:"36,42 24,16 44,20 54,42", cor:"corpo" },
-    { tipo:"poly", pts:"14,48 40,45 42,51 14,53", cor:"asa" },
-    { tipo:"ellipse", cx:96, cy:70, rx:13, ry:6, cor:"acento" },
-    { tipo:"ellipse", cx:150, cy:64, rx:11, ry:5.5, cor:"acento" },
-    { tipo:"poly", pts:"218,42 232,50 218,58", cor:"corpo" },
-    { tipo:"linha", x1:80, y1:76, x2:80, y2:84 }, { tipo:"roda", cx:80, cy:86, r:4 },
-    { tipo:"linha", x1:170, y1:60, x2:176, y2:72 }, { tipo:"roda", cx:178, cy:74, r:4 },
-    { tipo:"linha", x1:210, y1:56, x2:214, y2:68 }, { tipo:"roda", cx:216, cy:70, r:3.5 }
-  ]},
-  "generico": { nome:"Aeronave (categoria não identificada)", partes: [
-    { tipo:"poly", pts:"224,50 210,41 70,39 30,43 16,50 30,57 70,61 210,59", cor:"corpo" },
-    { tipo:"poly", pts:"180,58 90,56 82,62 90,66 180,66", cor:"asa" },
-    { tipo:"poly", pts:"32,43 22,16 34,16 40,43", cor:"corpo" },
-    { tipo:"poly", pts:"14,50 40,47 40,53 14,55", cor:"asa" },
-    { tipo:"ellipse", cx:220, cy:50, rx:7, ry:9, cor:"acento" }
-  ]}
-};
-
-function desenharSilhueta(catId, paleta){
-  var cat = POSTER_CATEGORIAS[catId] || POSTER_CATEGORIAS.generico;
-  var out = "";
-  cat.partes.forEach(function(p){
-    if (p.tipo === "poly"){
-      out += '<polygon points="'+p.pts+'" fill="'+(paleta[p.cor]||paleta.corpo)+'"/>';
-    } else if (p.tipo === "ellipse"){
-      out += '<ellipse cx="'+p.cx+'" cy="'+p.cy+'" rx="'+p.rx+'" ry="'+p.ry+'" fill="'+(paleta[p.cor]||paleta.corpo)+'"/>';
-    } else if (p.tipo === "linha"){
-      out += '<line x1="'+p.x1+'" y1="'+p.y1+'" x2="'+p.x2+'" y2="'+p.y2+'" stroke="'+paleta.detalhe+'" stroke-width="2"/>';
-    } else if (p.tipo === "roda"){
-      out += '<circle cx="'+p.cx+'" cy="'+p.cy+'" r="'+(p.r||5)+'" fill="'+paleta.detalhe+'"/>';
-    }
+/* ---------- poster vintage por tipo ("pokedex" de aeronaves) ----------
+   Voltou a ser gerado por IA (Workers AI, ver worker.js), depois de uma
+   tentativa de substituição por silhuetas determinísticas por categoria
+   ter sido rejeitada por não ficar bonita o suficiente, mesmo sendo
+   estruturalmente sempre correta. Fica a AI, com as falhas ocasionais
+   de fidelidade que isso implica — mitigadas por dois lados: o prompt
+   já pede para preservar forma, contagem de motores e orientação
+   esquerda-direita/cima-baixo (ver worker.js), e agora há um botão
+   "tentar outra" em cada poster para pedir uma nova tentativa quando a
+   que saiu não estiver em condições (o modelo não usa "seed" fixo,
+   por isso cada pedido novo já sai diferente por si só). Gerado sob
+   pedido, guardado em localStorage: cada tipo só é gerado uma vez, a
+   não ser que o utilizador peça explicitamente outra tentativa. */
+function posterKey(tipo){ return "sitrep_poster3_" + tipo; }
+function posterModoKey(tipo){ return "sitrep_poster3_modo_" + tipo; }
+function posterDataKey(tipo){ return "sitrep_poster3_data_" + tipo; }
+/* Mesma data que o worker.js usa (toISOString, sempre UTC) — é o que
+   decide se um poster "secundario" já é de um dia anterior e merece
+   uma tentativa silenciosa de regeneração pelo modelo principal. */
+function hojeUTC(){ return new Date().toISOString().slice(0, 10); }
+/* "modo" (ver worker.js) não muda o que se vê — é só um atributo title
+   no <img>, útil para diagnosticar um poster com defeito sem precisar
+   de abrir os logs do Worker: basta pairar o rato para saber de onde
+   veio a imagem. "secundario" é especial: é um poster temporário
+   (quota do modelo principal esgotada nesse dia) — loadPoster tenta
+   substituí-lo automaticamente da próxima vez que o tipo for aberto
+   num dia diferente. */
+function posterHtml(tipo, src, modo){
+  var tit = modo === "foto" ? "gerado a partir de fotografia real (image-to-image)"
+          : modo === "texto-fallback" ? "tentativa com fotografia falhou — gerado só por texto"
+          : modo === "texto" ? "gerado só por texto (sem fotografia disponível)"
+          : modo === "secundario" ? "temporário — modelo principal sem quota; será substituído automaticamente"
+          : "";
+  return '<img src="'+esc(src)+'" alt="Poster vintage — '+esc(tipo)+'"'+(tit?' title="'+esc(tit)+'"':'')+'>'+
+         '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+
+         (modo==="secundario"?' <span class="pp-poster-tmp">(temporário)</span>':'')+
+         ' <button type="button" class="pp-poster-regen" title="pedir uma nova geração (o modelo não repete a mesma imagem)">↻ tentar outra</button></div>';
+}
+/* O modelo de imagem já inventou datas ("2027 - 2916") e uma matrícula
+   falsa pintada na aeronave, mesmo depois de instruído para não o
+   fazer — não é de confiar para texto nenhum. O worker.js já não pede
+   texto ao modelo; o nome do tipo é escrito aqui, com <canvas>, sobre
+   a imagem crua — a única forma de garantir que o que aparece escrito
+   está sempre certo. Se o canvas falhar por algum motivo, devolve a
+   imagem tal como veio (sem texto a mais, só sem o nome sobreposto). */
+function compositarPoster(base64, tipo){
+  return new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){
+      try {
+        var w = img.naturalWidth || 1024, h = img.naturalHeight || 1024;
+        var cv = document.createElement("canvas");
+        cv.width = w; cv.height = h;
+        var ctx = cv.getContext("2d");
+        if (!ctx) throw new Error("getContext(\"2d\") devolveu null — provável bloqueio " +
+          "de fingerprinting do browser/extensão (ex.: Brave, alguns modos de privacidade)");
+        ctx.drawImage(img, 0, 0, w, h);
+        var barraH = Math.round(h * 0.16);
+        var grad = ctx.createLinearGradient(0, h-barraH, 0, h);
+        grad.addColorStop(0, "rgba(8,8,8,0)");
+        grad.addColorStop(1, "rgba(8,8,8,.74)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, h-barraH, w, barraH);
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+        ctx.shadowColor = "rgba(0,0,0,.6)";
+        ctx.shadowBlur = Math.round(w*0.012);
+        var tam = Math.round(w * 0.062);
+        ctx.font = "700 "+tam+"px 'Segoe UI', Arial, sans-serif";
+        /* reduz o tamanho até caber, em vez de deixar cortar ou sair
+           dos limites — um nome como "Boeing 787-9 Dreamliner" é longo */
+        while (ctx.measureText(tipo).width > w*0.92 && tam > 10){
+          tam -= 2; ctx.font = "700 "+tam+"px 'Segoe UI', Arial, sans-serif";
+        }
+        ctx.fillText(tipo, w/2, h - barraH*0.34);
+        resolve(cv.toDataURL("image/jpeg", 0.9));
+      } catch(e){
+        console.warn("SITREP: compositarPoster falhou, a usar a imagem crua (sem nome sobreposto):", e);
+        resolve("data:image/jpeg;charset=utf-8;base64,"+base64);
+      }
+    };
+    img.onerror = function(){ resolve(null); };
+    img.src = "data:image/jpeg;charset=utf-8;base64,"+base64;
   });
-  return out;
-}
-
-/* Classificação: designador ICAO do tipo (campo "t" do ADS-B) →
-   categoria. Reaproveita dados já existentes e verificados neste
-   ficheiro em vez de inventar uma tabela nova às cegas:
-   - POSTER_FORMAS_TODAS vem do próprio dataset ICAO DOC 8643 (contagem
-     e tipo de motor, jato/hélice/turboprop, helicóptero, girocóptero,
-     anfíbio, tiltrotor) — não é uma inferência minha, são valores do
-     dataset, já usados antes para compor o prompt de imagem.
-   - POSTER_FORMAS (tabela curada, pequena, acima) já indica "high-wing"
-     para alguns monomotores verificados à mão.
-   - Nenhuma das duas indica posição da asa para a maioria dos
-     monomotores — por isso, sem essa pista explícita, a categoria
-     fica "generico" (silhueta neutra) em vez de arriscar uma
-     afirmação de asa alta/baixa não verificada.
-   - FIRE_TYPES tem prioridade sobre a tabela ICAO 8643 para os seus
-     próprios códigos: confirmou-se uma colisão real (CL41 no ICAO
-     8643 aponta para um jato Canadair CL-41 Tutor, mas neste painel
-     CL41 é o Canadair CL-415, bimotor turboprop anfíbio) — confiar
-     cegamente na tabela genérica reproduziria aqui o mesmo tipo de
-     erro estrutural que motivou abandonar a geração por IA. */
-var FIRE_CATEGORIA = {
-  AT8T:"agricola", AT8R:"agricola", A802:"agricola", M18:"agricola",
-  CL2T:"bimotor", CL41:"bimotor", C415:"bimotor", S2T:"bimotor",
-  DH8D:"bimotor", Q400:"bimotor",
-  AN2:"generico",
-  KA32:"helicoptero", K32:"helicoptero",
-  B412:"helicoptero", B212:"helicoptero", B205:"helicoptero", B214:"helicoptero", B407:"helicoptero",
-  S64:"helicoptero", S61:"helicoptero", H500:"helicoptero",
-  AS32:"helicoptero", EC25:"helicoptero", H215:"helicoptero",
-  AS50:"helicoptero", H125:"helicoptero", A350:"helicoptero",
-  EC30:"helicoptero", H130:"helicoptero", A109:"helicoptero", A139:"helicoptero", AW39:"helicoptero",
-  EC35:"helicoptero", H135:"helicoptero", EC45:"helicoptero", H145:"helicoptero"
-  /* IL76, C130, B733 ficam de fora de propósito — a tabela ICAO 8643
-     já os classifica corretamente sozinha (quadrimotor jato /
-     quadrimotor turboprop / bimotor jato). */
-};
-var POSTER_ASA_EXTRA = {
-  C150:"high-wing", C170:"high-wing", C175:"high-wing", C180:"high-wing",
-  C185:"high-wing", C188:"high-wing", C206:"high-wing", C207:"high-wing",
-  C208:"high-wing", C210:"high-wing", P92:"high-wing", P96:"high-wing",
-  PA28:"low-wing", P28A:"low-wing", P28B:"low-wing", P28R:"low-wing", P28T:"low-wing",
-  DA40:"low-wing", DA20:"low-wing", SR22:"low-wing", SR20:"low-wing",
-  P208:"low-wing", P202:"low-wing", M20P:"low-wing", M20T:"low-wing",
-  BE33:"low-wing", BE35:"low-wing", BE36:"low-wing"
-};
-function analisarFormaTexto(frase){
-  var f = (frase || "").toLowerCase();
-  if (f.indexOf("helicopter") >= 0 || f.indexOf("tiltrotor") >= 0 || f.indexOf("gyrocopter") >= 0) return "helicoptero";
-  var naoEJato = f.indexOf("not a jet") >= 0;
-  var ehJato = !naoEJato && f.indexOf("jet") >= 0;
-  var trijet = f.indexOf("trijet") >= 0;
-  var multi = trijet || /twin-engine|four-engine|three-engine|quadjet| 6 engines| 8 engines/.test(f);
-  var anfibio = f.indexOf("amphibious") >= 0 || f.indexOf("seaplane") >= 0;
-  if (f.indexOf("rocket") >= 0) return "jato";
-  if (anfibio) return multi ? "bimotor" : "asa-alta-mono";
-  if (ehJato || trijet) return "jato";
-  if (multi) return "bimotor";
-  if (f.indexOf("high-wing") >= 0) return "asa-alta-mono";
-  if (f.indexOf("low-wing") >= 0) return "asa-baixa-mono";
-  return "generico";
-}
-function categoriaPorTipoIcao(tipoIcao){
-  var t = (tipoIcao || "").toUpperCase();
-  if (!t) return "generico";
-  if (FIRE_CATEGORIA[t]) return FIRE_CATEGORIA[t];
-  var frase = (typeof POSTER_FORMAS !== "undefined" && POSTER_FORMAS[t]) ||
-              (typeof POSTER_FORMAS_TODAS !== "undefined" && POSTER_FORMAS_TODAS[t]) || "";
-  var cat = frase ? analisarFormaTexto(frase) : "generico";
-  if (cat === "generico" && POSTER_ASA_EXTRA[t]){
-    cat = POSTER_ASA_EXTRA[t] === "high-wing" ? "asa-alta-mono" : "asa-baixa-mono";
-  }
-  return cat;
-}
-
-/* Poster final: céu em gradiente + nuvens + silhueta da categoria +
-   legenda com o nome do tipo. Tudo determinístico (a paleta é
-   escolhida por hash do nome do tipo, sempre a mesma para o mesmo
-   tipo, só varia ENTRE tipos diferentes) — sem <canvas> a reescrever
-   texto em cima de nada, o texto já nasce certo dentro do próprio
-   SVG. */
-var POSTER_PALETAS = [
-  { ceuTopo:"#2c4c78", ceuBase:"#8fc1e3", corpo:"#f2efe4", asa:"#f2c14e", acento:"#c94f3d", detalhe:"#20242b" },
-  { ceuTopo:"#1f3b5c", ceuBase:"#6fa8d8", corpo:"#e9e4d4", asa:"#5ea88a", acento:"#e0763a", detalhe:"#20242b" },
-  { ceuTopo:"#3a2f57", ceuBase:"#a97fb0", corpo:"#f5ede0", asa:"#e0a458", acento:"#c94f3d", detalhe:"#241f2e" },
-  { ceuTopo:"#22506b", ceuBase:"#7fc3c9", corpo:"#f0ece0", asa:"#e8944a", acento:"#3d6ea5", detalhe:"#1c2b30" },
-  { ceuTopo:"#4a3226", ceuBase:"#d38f5a", corpo:"#f2ece0", asa:"#7a6f9b", acento:"#c94f3d", detalhe:"#241a12" },
-  { ceuTopo:"#1c3d33", ceuBase:"#7fae8f", corpo:"#efe8d8", asa:"#d9b24c", acento:"#c9613d", detalhe:"#16241d" }
-];
-var POSTER_NUVENS_LAYOUT = [
-  [[60,60,26,9],[330,40,22,7],[110,300,30,10]],
-  [[300,70,28,9],[50,260,24,8],[200,40,20,6]],
-  [[40,120,22,7],[320,220,26,9],[150,50,18,6]]
-];
-function hashStrPoster(s){
-  var h = 0; s = String(s || "");
-  for (var i = 0; i < s.length; i++){ h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
-  return Math.abs(h);
-}
-function b64Unicode(str){ return btoa(unescape(encodeURIComponent(str))); }
-function tamanhoFonteParaCaber(texto, larguraMax){
-  var tam = 26;
-  try {
-    var cv = document.createElement("canvas"), ctx = cv.getContext("2d");
-    if (!ctx) return tam;
-    ctx.font = "700 "+tam+"px 'Segoe UI', Arial, sans-serif";
-    while (ctx.measureText(texto).width > larguraMax && tam > 11){
-      tam -= 1; ctx.font = "700 "+tam+"px 'Segoe UI', Arial, sans-serif";
-    }
-  } catch(e){}
-  return tam;
-}
-function gerarPosterSvg(tipo, categoriaId){
-  var W = 400, H = 400;
-  var seed = hashStrPoster(tipo || categoriaId);
-  var p = POSTER_PALETAS[seed % POSTER_PALETAS.length];
-  var layout = POSTER_NUVENS_LAYOUT[seed % POSTER_NUVENS_LAYOUT.length];
-  var nuvens = layout.map(function(c){
-    return '<ellipse cx="'+c[0]+'" cy="'+c[1]+'" rx="'+c[2]+'" ry="'+c[3]+'" fill="#fff" opacity="0.55"/>';
-  }).join("");
-  var tam = tamanhoFonteParaCaber(tipo || "", W * 0.9);
-  var silhueta = desenharSilhueta(categoriaId, p);
-  var barraH = H * 0.14;
-  var svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'">' +
-      '<defs><linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1">' +
-        '<stop offset="0" stop-color="'+p.ceuTopo+'"/>' +
-        '<stop offset="1" stop-color="'+p.ceuBase+'"/>' +
-      '</linearGradient></defs>' +
-      '<rect width="'+W+'" height="'+H+'" fill="url(#ceu)"/>' +
-      nuvens +
-      '<g transform="translate('+(W*0.06)+','+(H*0.30)+') scale(1.42)">'+silhueta+'</g>' +
-      '<rect x="0" y="'+(H-barraH)+'" width="'+W+'" height="'+barraH+'" fill="rgba(10,10,10,.7)"/>' +
-      '<text x="'+(W/2)+'" y="'+(H-barraH*0.32)+'" fill="#fff" font-family="Segoe UI, Arial, sans-serif" '+
-        'font-weight="700" font-size="'+tam+'" text-anchor="middle">'+esc(tipo||"")+'</text>' +
-    '</svg>';
-  return "data:image/svg+xml;base64," + b64Unicode(svg);
-}
-
-/* ---------- poster por tipo ("pokedex" de aeronaves) ----------
-   Silhueta por categoria (ver bloco acima): gerada localmente, na
-   hora, sem rede — mas continua guardada em localStorage por tipo,
-   uma vez para sempre, exatamente como antes, para alimentar a
-   Spotter Collection sem ter de recalcular tudo a cada abertura. */
-function posterKey(tipo){ return "sitrep_poster2_" + tipo; }
-function posterHtml(tipo, src){
-  return '<img src="'+esc(src)+'" alt="Silhueta ilustrada — '+esc(tipo)+'" '+
-         'title="silhueta determinística por categoria — nunca gerada por IA, a forma nunca varia para o mesmo tipo">'+
-         '<div class="pp-poster-lbl">silhueta por categoria · '+esc(tipo)+'</div>';
 }
 /* Índice dos tipos já colecionados — evita varrer o localStorage inteiro
    por prefixo e é o que alimenta a "Spotter Collection". Guardado à
    parte, como JSON, nunca reconstruído a partir de outras chaves.
-   Chave "…2_" nova de propósito: os pósteres antigos gerados por IA
-   (antes desta versão) ficam órfãos e simplesmente deixam de ser
-   lidos — nunca se mistura um poster antigo (potencialmente com a
-   forma errada) com os novos, garantidamente corretos por categoria. */
+   Chave "…3_" nova de propósito: nem os pósteres da tentativa de IA
+   anterior a esta versão, nem os das silhuetas por categoria (v.48),
+   se misturam com os novos — todos ficam órfãos, ignorados em
+   silêncio, nunca lidos por engano. */
 function lerIndiceColecao(){
-  try { return JSON.parse(localStorage.getItem("sitrep_poster2_index") || "[]"); }
+  try { return JSON.parse(localStorage.getItem("sitrep_poster3_index") || "[]"); }
   catch(e){ return []; }
 }
 function registarNaColecao(tipo){
   var idx = lerIndiceColecao();
   if (idx.indexOf(tipo) < 0){
     idx.push(tipo);
-    try { localStorage.setItem("sitrep_poster2_index", JSON.stringify(idx)); } catch(e){}
+    try { localStorage.setItem("sitrep_poster3_index", JSON.stringify(idx)); } catch(e){}
   }
 }
 function loadPoster(box, tipo, descricao, tipoIcao){
   if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
-  if (posterCache[tipo] !== undefined){ box.innerHTML = posterCache[tipo] || ""; return; }
-  var guardado = null;
-  try { guardado = localStorage.getItem(posterKey(tipo)); } catch(e){}
+  /* ligarBotaoRegenerar: o botão "↻ tentar outra" só existe quando
+     posterHtml() desenhou mesmo uma imagem (nunca nos estados de
+     espera/erro/quota, que têm o seu próprio HTML sem o botão). Clicar
+     limpa a cache (memória + localStorage) deste tipo e força uma
+     geração nova, ignorando por completo o que já lá estava — é a
+     única ação nesta função que ignora o cache "uma vez por tipo" de
+     propósito, porque o pedido é explícito do utilizador. */
+  function ligarBotaoRegenerar(){
+    var btn = box.querySelector(".pp-poster-regen");
+    if (!btn) return;
+    btn.addEventListener("click", function(ev){
+      ev.preventDefault(); ev.stopPropagation();
+      delete posterCache[tipo];
+      try {
+        localStorage.removeItem(posterKey(tipo));
+        localStorage.removeItem(posterModoKey(tipo));
+        localStorage.removeItem(posterDataKey(tipo));
+      } catch(e){}
+      box.innerHTML = '<div class="pp-poster-wait">a gerar poster vintage…</div>';
+      prosseguir(tipoIcao ? (photoTipoRefCache[tipoIcao] || null) : null);
+    });
+  }
+  if (posterCache[tipo] !== undefined){ box.innerHTML = posterCache[tipo] || ""; ligarBotaoRegenerar(); return; }
+  var guardado = null, modoGuardado = null, dataGuardado = null;
+  try {
+    guardado = localStorage.getItem(posterKey(tipo));
+    modoGuardado = localStorage.getItem(posterModoKey(tipo));
+    dataGuardado = localStorage.getItem(posterDataKey(tipo));
+  } catch(e){}
+  /* Um poster "secundario" (gerado enquanto o modelo principal estava
+     sem quota) mostra-se sempre de imediato — nunca se fica à espera
+     por causa disto. Mas se for de um dia UTC diferente do de hoje,
+     tenta-se substituí-lo pelo principal em segundo plano, em
+     silêncio: sem mensagem de "a gerar…", sem apagar a imagem antiga
+     se a tentativa falhar. A pessoa só repara se e quando resultar. */
+  var tentarSubstituirSecundario = false;
   if (guardado){
-    var htmlG = posterHtml(tipo, guardado);
-    posterCache[tipo] = htmlG; box.innerHTML = htmlG;
+    var html = posterHtml(tipo, guardado, modoGuardado);
+    posterCache[tipo] = html; box.innerHTML = html;
+    ligarBotaoRegenerar();
+    if (modoGuardado === "secundario" && dataGuardado && dataGuardado !== hojeUTC() && proxyProprio){
+      tentarSubstituirSecundario = true;
+      /* Marca já a tentativa de hoje, sucesso ou não — evita repetir o
+         pedido ao Worker sempre que o popup deste tipo for reaberto no
+         mesmo dia, se a substituição falhar. */
+      try { localStorage.setItem(posterDataKey(tipo), hojeUTC()); } catch(e){}
+    } else {
+      return;
+    }
+  }
+  if (!proxyProprio){
+    if (!tentarSubstituirSecundario){ posterCache[tipo] = ""; box.innerHTML=""; }
     return;
   }
-  var cat = categoriaPorTipoIcao(tipoIcao);
-  var src = gerarPosterSvg(tipo, cat);
-  var html = posterHtml(tipo, src);
-  posterCache[tipo] = html; box.innerHTML = html;
-  try {
-    localStorage.setItem(posterKey(tipo), src);
-    registarNaColecao(tipo);
-  } catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
+  if (!tentarSubstituirSecundario){
+    box.innerHTML = '<div class="pp-poster-wait">a gerar poster vintage…</div>';
+  }
+  /* "descricao" (nome + eventual pista de forma) só serve para compor
+     o prompt de imagem no Worker — a legenda e a chave de cache usam
+     sempre "tipo" (só o nome), nunca a descrição alargada. Se já
+     tivermos visto uma fotografia real deste tipo (photoTipoRefCache,
+     preenchido por loadPhoto), manda-se o URL da foto para o Worker
+     gerar o poster por image-to-image em vez de só texto; sem foto, o
+     Worker cai sozinho no modo de texto de sempre.
+     loadPhoto arranca mesmo antes deste ponto (a mesma onPopupOpen
+     chama-o primeiro), mas é assíncrono — sem esperar por ele, a
+     corrida terminava quase sempre a favor do poster, que arrancava
+     logo em modo texto antes da foto responder. Por isso, se a
+     procura da foto deste tipo ainda estiver em curso
+     (photoTipoRefPromise), espera-se por ela antes de decidir — só na
+     primeira geração de cada tipo; nas seguintes (incluindo cada
+     "tentar outra") já não há promessa pendente e segue-se logo. */
+  function prosseguir(fotoRef){
+    var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(descricao || tipo) +
+            (fotoRef ? "&foto=" + encodeURIComponent(fotoRef) : "");
+    /* Geração de imagem é mais lenta que uma consulta normal — sem
+       timeout, um pedido perdido deixava "a gerar poster vintage…"
+       preso para sempre. Não usa fetchVia: só o Worker próprio tem
+       Workers AI, tentar os proxies públicos a seguir seria sempre em
+       vão. */
+    var ctrl = new AbortController();
+    var relogio = setTimeout(function(){ ctrl.abort(); }, 20000);
+    fetch(u, { signal:ctrl.signal }).then(function(r){
+      clearTimeout(relogio); return r.json();
+    }).then(function(j){
+    if (j && j.motivo === "quota"){
+      if (tentarSubstituirSecundario) return;
+      var htmlQuota = '<div class="pp-poster-wait">sem quota do Workers AI hoje — tenta depois da meia-noite UTC (~1h em Lisboa)</div>';
+      posterCache[tipo] = htmlQuota; box.innerHTML = htmlQuota; return;
+    }
+    if (!j || !j.image){
+      if (tentarSubstituirSecundario) return;
+      posterCache[tipo] = ""; box.innerHTML = ""; return;
+    }
+    var modo = j.modo || "";
+    return compositarPoster(j.image, tipo).then(function(src){
+      if (!src){
+        if (tentarSubstituirSecundario) return;
+        posterCache[tipo] = ""; box.innerHTML = ""; return;
+      }
+      /* Chega aqui na geração normal, numa substituição silenciosa
+         bem-sucedida, ou depois de um "tentar outra" explícito — em
+         todos os casos há imagem nova a mostrar, por isso o
+         comportamento é sempre o mesmo: substitui. */
+      var html = posterHtml(tipo, src, modo);
+      posterCache[tipo] = html; box.innerHTML = html;
+      ligarBotaoRegenerar();
+      try {
+        localStorage.setItem(posterKey(tipo), src);
+        if (modo) localStorage.setItem(posterModoKey(tipo), modo);
+        localStorage.setItem(posterDataKey(tipo), hojeUTC());
+        registarNaColecao(tipo);
+      }
+      catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
+    });
+    }).catch(function(){
+      clearTimeout(relogio);
+      if (tentarSubstituirSecundario) return;
+      posterCache[tipo] = ""; box.innerHTML = "";
+    });
+  }
+  if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined && photoTipoRefPromise[tipoIcao]){
+    photoTipoRefPromise[tipoIcao].then(function(){
+      prosseguir(photoTipoRefCache[tipoIcao] || null);
+    });
+  } else {
+    prosseguir(tipoIcao ? (photoTipoRefCache[tipoIcao] || null) : null);
+  }
 }
 function onPopupOpen(e){
   var el = e.popup.getElement(); if (!el) return;
   var pp = el.querySelector(".pp"), box = el.querySelector(".pp-photo"),
       boxP = el.querySelector(".pp-poster");
-  if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg, pp.dataset.type);
+  if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg, pp.dataset.type, pp.dataset.typeicao);
   /* postertipo vem vazio quando não há nome descritivo de confiança —
      loadPoster já trata "" como "não gerar nada", ver mais abaixo */
   if (pp && boxP) loadPoster(boxP, pp.dataset.postertipo, pp.dataset.posterdesc, pp.dataset.typeicao);
@@ -3150,8 +3117,9 @@ function renderColecao(){
   var grid = $("colGrid");
   $("colContagem").textContent = idx.length + (idx.length===1 ? " tipo colecionado" : " tipos colecionados");
   if (!idx.length){
-    grid.innerHTML = '<div class="colEmpty">Ainda sem silhuetas. Cada vez que abrir o popup de uma '+
-      'aeronave de um tipo novo, a silhueta da sua categoria fica aqui — para sempre, uma vez por tipo.</div>';
+    grid.innerHTML = '<div class="colEmpty">Ainda sem pósteres. Cada vez que abrir o popup de uma '+
+      'aeronave de um tipo novo, e o Worker próprio tiver o Workers AI ativo, o poster gerado '+
+      'fica aqui — para sempre, uma vez por modelo (a não ser que peças "↻ tentar outra").</div>';
     return;
   }
   var html = "";
@@ -3211,17 +3179,22 @@ function focarPoster(tipo){
 function abrirColecao(){ renderColecao(); renderTipoLogPainel(); $("colOverlay").hidden = false; }
 function fecharColecao(){ $("colOverlay").hidden = true; }
 /* Reset total — apaga índice e cada imagem guardada, e a cache em
-   memória desta sessão. Útil ao ajustar a classificação por categoria
-   (ver categoriaPorTipoIcao): sem isto, uma silhueta antiga ficava
-   para sempre (é a ideia do cache "uma vez por tipo"), mesmo depois de
-   a classificação de um tipo mudar. */
+   memória desta sessão. Útil ao mudar o estilo do prompt no worker.js:
+   sem isto, os pósteres antigos ficavam para sempre (é a ideia do
+   cache "uma vez por tipo"), mesmo depois de o estilo mudar. Para
+   corrigir só UM poster específico há agora o botão "↻ tentar outra"
+   em cada um — isto aqui é só para limpar tudo de uma vez. */
 function limparColecao(){
   var idx = lerIndiceColecao();
   if (!idx.length){ return; }
-  if (!confirm("Apagar as " + idx.length + " silhuetas guardadas? Não é reversível — a próxima vez que abrires cada tipo, gera-se de novo.")) return;
+  if (!confirm("Apagar os " + idx.length + " pósteres guardados? Não é reversível — a próxima vez que abrires cada tipo, gera-se de novo.")) return;
   try {
-    idx.forEach(function(tipo){ localStorage.removeItem(posterKey(tipo)); });
-    localStorage.removeItem("sitrep_poster2_index");
+    idx.forEach(function(tipo){
+      localStorage.removeItem(posterKey(tipo));
+      localStorage.removeItem(posterModoKey(tipo));
+      localStorage.removeItem(posterDataKey(tipo));
+    });
+    localStorage.removeItem("sitrep_poster3_index");
   } catch(e){}
   posterCache = {};
   renderColecao();
