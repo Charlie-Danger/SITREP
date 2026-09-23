@@ -534,6 +534,27 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .tbl.fechada .pega-ico{transform:rotate(-90deg)}
 .tbl.fechada #rCorpo{display:none}
 
+/* aviso de versão nova — nunca recarrega sozinho: um painel de
+   emergência não deve interromper quem o está a consultar */
+.upd-banner{
+  position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+  transform:translateX(-50%);z-index:9999;
+  display:none;align-items:center;gap:10px;
+  background:var(--panel-2);border:1px solid var(--rule-hi);
+  padding:9px 10px 9px 14px;border-radius:3px;
+  font-family:var(--f-cond);font-size:12.5px;font-weight:600;
+  letter-spacing:.06em;color:var(--ink);
+  box-shadow:0 4px 18px rgba(0,0,0,.5);
+}
+.upd-banner.on{display:flex}
+.upd-banner button{
+  background:var(--orange);color:var(--ground);border:none;
+  padding:5px 11px;border-radius:2px;font-weight:700;cursor:pointer;
+  font-family:var(--f-cond);letter-spacing:.06em;font-size:12px;
+}
+.upd-banner .x{cursor:pointer;color:var(--ink-mute);padding:2px 5px;font-size:13px}
+.upd-banner .x:hover{color:var(--ink-mid)}
+
 .only-narrow{display:none}
 .maisbar{
   display:flex;gap:8px;flex-wrap:wrap;
@@ -849,7 +870,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.42";
+var VERSAO = "2026-09-20.43";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -4053,6 +4074,11 @@ function schedule(fn, base, delay){
   });
 }
 
+/* referência ao service worker, preenchida mais abaixo assim que o
+   registo resolve — usada aqui só para pedir uma verificação de
+   versão nova sempre que a pessoa volta à app (ver retomarTudo) */
+var swReg = null;
+
 var wakeLock = null;
 function askWake(){
   if (!navigator.wakeLock || wakeLock) return;
@@ -4072,6 +4098,10 @@ function retomarTudo(){
   q.forEach(function(loop){ loop(); });
   reiniciarLoops.forEach(function(reiniciar){ reiniciar(); });
   refreshAll();
+  /* aproveita o regresso à app para perguntar ao browser se há sw.js
+     novo — sem isto, uma aba/PWA que fica dias aberta nunca voltaria
+     a verificar sozinha */
+  if (swReg) { try { swReg.update().catch(function(){}); } catch(e){} }
 }
 document.addEventListener("visibilitychange", function(){
   if (document.hidden){
@@ -4091,8 +4121,32 @@ window.addEventListener("pageshow", function(){
 });
 
 /* ---------- instalação e estado da ligação ---------- */
+function mostrarAvisoAtualizacao(){
+  var b = $("updBanner"); if (!b) return;
+  b.classList.add("on");
+}
+var updBtn = $("updBtn"), updX = $("updX");
+if (updBtn) updBtn.addEventListener("click", function(){ location.reload(); });
+if (updX) updX.addEventListener("click", function(){
+  var b = $("updBanner"); if (b) b.classList.remove("on");
+});
+
 if ("serviceWorker" in navigator && location.protocol === "https:"){
-  navigator.serviceWorker.register("sw.js").catch(function(){});
+  navigator.serviceWorker.register("sw.js").then(function(reg){
+    swReg = reg;
+  }).catch(function(){});
+
+  /* Um separador/PWA que fica aberto dias a fio (normal num painel de
+     incêndios em curso) nunca troca sozinho o JS já carregado em
+     memória, mesmo que o service worker mude de versão nos bastidores
+     — skipWaiting()+clients.claim() (ver sw.js) só troca o
+     "intermediário" de rede, nunca o código já em execução.
+     controllerchange é o sinal de que uma versão nova acabou de
+     assumir o controlo; a partir daí mostra-se o aviso, sem nunca
+     recarregar sozinho — a pessoa é que decide o momento. */
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    mostrarAvisoAtualizacao();
+  });
 }
 
 function estadoRede(){
@@ -4148,5 +4202,11 @@ if (casa && isFinite(casa.lat)){
 })();
 
 </script>
+
+<div class="upd-banner" id="updBanner">
+  <span>nova versão disponível</span>
+  <button type="button" id="updBtn">atualizar</button>
+  <span class="x" id="updX" role="button" aria-label="dispensar">✕</span>
+</div>
 </body>
 </html>
