@@ -506,6 +506,9 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .tbl-h span.srt{cursor:pointer;user-select:none}
 .tbl-h span.srt:hover{color:var(--ink-mid)}
 .tbl-h span.srt.on{color:var(--drop)}
+.tbl-h .n{text-align:center}
+.tbl-h .hcol{display:flex;flex-direction:column;align-items:center;line-height:1.15;gap:1px}
+.tbl-h .hcol .hunit{font-size:7.5px;font-weight:500;letter-spacing:.03em;text-transform:none;opacity:.6}
 .row{display:grid;grid-template-columns:78px 1fr 52px 52px 44px 40px;gap:7px;padding:5px 11px;
      border-bottom:1px solid var(--rule);font-family:var(--f-mono);font-size:11.5px;
      font-variant-numeric:tabular-nums;cursor:pointer;color:var(--ac-gen)}
@@ -514,7 +517,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .row.fire{color:var(--ac-fire)}
 .row .cs{font-weight:600;letter-spacing:.03em}
 .row .ty{color:var(--ink-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .n{text-align:right}
+.row .n{text-align:center}
 .row.stale{opacity:.45}
 .empty{padding:16px 12px;color:var(--ink-mute);font-size:11px;line-height:1.6;font-family:var(--f-mono)}
 
@@ -811,7 +814,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       </button>
       <div id="rCorpo">
         <div class="tbl-h">
-          <span>Indicativo</span><span>Tipo</span><span class="n srt" id="rSrtDist" data-k="dist" title="quilómetros">Dist</span><span class="n srt" id="rSrtAlt" data-k="alt" title="pés (altitude barométrica)">Alt</span><span class="n" title="quilómetros/hora">Vel</span><span class="n" title="metros sobre o solo">AGL</span>
+          <span>Indicativo</span><span>Tipo</span><span class="n srt hcol" id="rSrtDist" data-k="dist" title="quilómetros"><b class="hlbl">Dist</b><small class="hunit">km</small></span><span class="n srt hcol" id="rSrtAlt" data-k="alt" title="pés (altitude barométrica)"><b class="hlbl">Alt</b><small class="hunit">ft</small></span><span class="n hcol" title="quilómetros/hora"><b class="hlbl">Vel</b><small class="hunit">km/h</small></span><span class="n hcol" title="metros sobre o solo"><b class="hlbl">AGL</b><small class="hunit">m</small></span>
         </div>
         <div id="rRows"><div class="empty">A contactar rede ADS-B…</div></div>
       </div>
@@ -826,7 +829,6 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
       <div class="hsub" style="color:var(--drop)">━ eixo de descargas</div>
       <div class="hsub" style="color:var(--orange)">◉ ocorrência ativa</div>
       <div class="hsub" id="rEscala">anéis —</div>
-      <div class="hsub" style="opacity:.7">Dist km · Alt ft · Vel km/h · AGL m</div>
     </div>
   </div>
 </div>
@@ -847,7 +849,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.41";
+var VERSAO = "2026-09-20.42";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -3387,7 +3389,10 @@ function renderAircraft(){
       var el = $(p[0]); if (!el) return;
       var ativo = rSort.by === p[1];
       el.classList.toggle("on", ativo);
-      el.textContent = p[2] + (ativo ? (rSort.dir>0?" ▲":" ▼") : "");
+      /* só o rótulo (.hlbl) muda — a unidade (.hunit) fica intacta,
+         em vez de sobrescrever o span inteiro com textContent */
+      var lbl = el.querySelector(".hlbl");
+      if (lbl) lbl.textContent = p[2] + (ativo ? (rSort.dir>0?" ▲":" ▼") : "");
     });
 
     var listaR = acs.slice();
