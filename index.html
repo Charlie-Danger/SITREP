@@ -903,7 +903,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.45";
+var VERSAO = "2026-09-20.46";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1264,6 +1264,12 @@ var photoTipoRefCache = {}; // chave: tipo (código ICAO cru, maiúsculas) → U
                            // pequena (não a "large") da primeira foto real vista desse tipo.
                            // Serve só para o Worker usar como referência no poster
                            // image-to-image (ver loadPoster) — nunca é mostrada ao utilizador.
+var photoTipoRefPromise = {}; // chave: mesmo tipo → promessa da procura de foto em curso,
+                           // enquanto photoTipoRefCache[tipo] ainda está undefined. Corrige a
+                           // corrida entre loadPhoto e loadPoster: sem isto, um tipo visto pela
+                           // primeira vez gerava quase sempre o poster em modo texto (a foto
+                           // ainda não tinha chegado), e como cada tipo só gera uma vez para
+                           // sempre, ficava preso nesse modo — nunca mais tentava por foto.
 var posterCache = {};     // chave: rótulo do tipo → HTML do poster vintage gerado por IA
                            // (espelha localStorage; ver loadPoster)
 var radarReady = false;
@@ -2823,11 +2829,14 @@ function loadPhoto(box, hex, reg, tipo, tipoIcao){
   box.innerHTML = '<div class="pp-wait">a procurar fotografia…</div>';
   var u = hex ? "https://api.planespotters.net/pub/photos/hex/"+encodeURIComponent(hex)
               : "https://api.planespotters.net/pub/photos/reg/"+encodeURIComponent(reg);
-  fetchVia(u, 9000).then(function(r){
+  var promessa = fetchVia(u, 9000).then(function(r){
     var ph = (r.data && r.data.photos && r.data.photos[0]) || null;
     var src = ph && ((ph.thumbnail_large && ph.thumbnail_large.src) ||
                      (ph.thumbnail && ph.thumbnail.src));
-    if (!src){ photoCache[key]=""; box.innerHTML = fotoGenerica(tipo); return; }
+    if (!src){
+      if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined) photoTipoRefCache[tipoIcao] = "";
+      photoCache[key]=""; box.innerHTML = fotoGenerica(tipo); return;
+    }
     /* Para referência do poster (image-to-image) guarda-se de propósito
        a miniatura PEQUENA ("thumbnail"), não a "large" usada para
        mostrar ao utilizador — o modelo de imagem exige entrada menor
@@ -2847,7 +2856,14 @@ function loadPhoto(box, hex, reg, tipo, tipoIcao){
     if (tipo && tipo!=="—" && tipo!=="desconhecido" && photoTipoCache[tipo]===undefined){
       photoTipoCache[tipo] = html;
     }
-  }).catch(function(){ photoCache[key]=""; box.innerHTML = fotoGenerica(tipo); });
+  }).catch(function(){
+    if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined) photoTipoRefCache[tipoIcao] = "";
+    photoCache[key]=""; box.innerHTML = fotoGenerica(tipo);
+  });
+  /* Regista a promessa desta procura para quem estiver à espera dela
+     (loadPoster, chamado quase ao mesmo tempo que este loadPhoto) —
+     ver a nota junto de photoTipoRefPromise. */
+  if (tipoIcao) photoTipoRefPromise[tipoIcao] = promessa;
 }
 /* ---------- poster vintage por tipo ("pokedex" de aeronaves) ----------
    Gerado sob pedido pelo Worker próprio (Workers AI, ver worker.js) e
@@ -2986,23 +3002,32 @@ function loadPoster(box, tipo, descricao, tipoIcao){
      o prompt de imagem no Worker — a legenda e a chave de cache usam
      sempre "tipo" (só o nome), nunca a descrição alargada. Se já
      tivermos visto uma fotografia real deste tipo (photoTipoRefCache,
-     preenchido por loadPhoto — normalmente antes deste ponto, já que o
-     popup pede a foto e o poster ao mesmo tempo, mas não há garantia de
-     ordem), manda-se o URL da foto para o Worker gerar o poster por
-     image-to-image em vez de só texto; sem foto, o Worker cai sozinho
-     no modo de texto de sempre. */
-  var fotoRef = tipoIcao ? photoTipoRefCache[tipoIcao] : null;
-  var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(descricao || tipo) +
-          (fotoRef ? "&foto=" + encodeURIComponent(fotoRef) : "");
-  /* Geração de imagem é mais lenta que uma consulta normal — sem
-     timeout, um pedido perdido deixava "a gerar poster vintage…" preso
-     para sempre. Não usa fetchVia: só o Worker próprio tem Workers AI,
-     tentar os proxies públicos a seguir seria sempre em vão. */
-  var ctrl = new AbortController();
-  var relogio = setTimeout(function(){ ctrl.abort(); }, 20000);
-  fetch(u, { signal:ctrl.signal }).then(function(r){
-    clearTimeout(relogio); return r.json();
-  }).then(function(j){
+     preenchido por loadPhoto), manda-se o URL da foto para o Worker
+     gerar o poster por image-to-image em vez de só texto; sem foto, o
+     Worker cai sozinho no modo de texto de sempre.
+     loadPhoto arranca mesmo antes deste ponto (a mesma onPopupOpen
+     chama-o primeiro), mas é assíncrono — sem esperar por ele, a
+     corrida terminava quase sempre a favor do poster, que arrancava
+     logo em modo texto antes da foto responder. Como cada tipo só
+     gera UMA VEZ para sempre, isso prendia o poster em modo texto
+     permanentemente já na primeira vez que se via o tipo. Por isso,
+     se a procura da foto deste tipo ainda estiver em curso
+     (photoTipoRefPromise), espera-se por ela antes de decidir — só na
+     primeira geração de cada tipo; nas seguintes já não há promessa
+     pendente e segue-se logo. */
+  function prosseguir(fotoRef){
+    var u = proxyProprio.replace(/\/+$/,"") + "/?poster=" + encodeURIComponent(descricao || tipo) +
+            (fotoRef ? "&foto=" + encodeURIComponent(fotoRef) : "");
+    /* Geração de imagem é mais lenta que uma consulta normal — sem
+       timeout, um pedido perdido deixava "a gerar poster vintage…"
+       preso para sempre. Não usa fetchVia: só o Worker próprio tem
+       Workers AI, tentar os proxies públicos a seguir seria sempre em
+       vão. */
+    var ctrl = new AbortController();
+    var relogio = setTimeout(function(){ ctrl.abort(); }, 20000);
+    fetch(u, { signal:ctrl.signal }).then(function(r){
+      clearTimeout(relogio); return r.json();
+    }).then(function(j){
     if (j && j.motivo === "quota"){
       /* Se isto era uma tentativa silenciosa de substituir um poster
          "secundario", a quota principal continua esgotada (ou até o
@@ -3041,11 +3066,19 @@ function loadPoster(box, tipo, descricao, tipoIcao){
       }
       catch(e){ /* localStorage cheio — fica só em memória desta sessão */ }
     });
-  }).catch(function(){
-    clearTimeout(relogio);
-    if (tentarSubstituirSecundario) return;
-    posterCache[tipo] = ""; box.innerHTML = "";
-  });
+    }).catch(function(){
+      clearTimeout(relogio);
+      if (tentarSubstituirSecundario) return;
+      posterCache[tipo] = ""; box.innerHTML = "";
+    });
+  }
+  if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined && photoTipoRefPromise[tipoIcao]){
+    photoTipoRefPromise[tipoIcao].then(function(){
+      prosseguir(photoTipoRefCache[tipoIcao] || null);
+    });
+  } else {
+    prosseguir(tipoIcao ? (photoTipoRefCache[tipoIcao] || null) : null);
+  }
 }
 function onPopupOpen(e){
   var el = e.popup.getElement(); if (!el) return;
