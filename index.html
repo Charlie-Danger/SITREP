@@ -870,7 +870,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-20.43";
+var VERSAO = "2026-09-20.44";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1337,18 +1337,27 @@ function fetchVia(url, ms, headers, tipo){
     var order = proprios.concat(publicos);
     var i = 0;
     /* Percorrer três proxies com timeout cheio somava mais de trinta
-       segundos antes de desistir. Cada um leva metade do tempo: se não
-       responder depressa, não vale a pena esperar por ele.
-       As fontes próprias são exceção: não são partilhadas por meio
-       mundo, e cortá-las ao mesmo prazo empurrava para um público pior
-       sempre que a fonte original (não o Worker) demorasse um pouco
-       mais — cada uma tem 12 s de orçamento próprio, faz sentido
-       deixá-las usá-los. */
+       segundos antes de desistir. Cada público leva metade do tempo: se
+       não responder depressa, não vale a pena esperar por ele.
+       As fontes próprias são exceção parcial: não são partilhadas por
+       meio mundo, por isso valem mais do que um público — mas com DUAS
+       próprias (Cloudflare + Deno), dar a cada uma até 9s como se só
+       existisse uma fazia a SOMA delas ultrapassar os 11s que o resto
+       do painel promete como espera máxima, antes sequer de chegar aos
+       públicos (9s+9s=18s só nas próprias). Corrigido em 2026-09-23:
+       o orçamento das próprias passa a ser um teto PARTILHADO entre
+       quantas existirem, não um teto por-cada — com uma só configurada
+       (o caso mais comum) o comportamento fica praticamente igual ao
+       de antes. */
     var toP = Math.max(4000, Math.round(to * 0.55));
+    var orcamentoProprios = Math.min(to, 10000);
+    var toProprio = proprios.length
+      ? Math.max(3500, Math.round(orcamentoProprios / proprios.length))
+      : toP;
     function next(){
       if (i >= order.length){ netMode.proxy = null; throw new Error("proxies indisponíveis"); }
       var p = order[i++];
-      var tp = ehProprio(p.name) ? Math.max(toP, Math.min(to, 9000)) : toP;
+      var tp = ehProprio(p.name) ? toProprio : toP;
       return fetchJSON(p.wrap(url), tp, null, tipo)
         .then(function(d){ netMode.proxy = p.name; return { data:d, via:p.name }; })
         .catch(next);
