@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.73-rollback";
+var VERSAO = "2026-09-24.74";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -928,7 +928,15 @@ var VERSAO = "2026-09-24.73-rollback";
    qualquer sítio para onde ela seja movida. */
 var REF = { lat: 40.2167, lon: -8.0500, name: "Arganil (por omissão)" };
 
-var ADSB_RADIUS_NM = 60;
+/* Experiência: raio alargado ao máximo que as fontes públicas costumam
+   aceitar (250 NM é o limite documentado mais comum nos mirrors readsb
+   como adsb.fi/adsb.lol/airplanes.live — [Inferência], não testável
+   ao vivo a partir daqui). A ideia é encher mais o ecrã em zoom afastado,
+   como o FlightRadar24/ADS-B Exchange, à custa de perder o foco "só a
+   zona à volta de Arganil". Se alguma fonte recusar o pedido a este
+   raio, isso aparece na nota de diagnóstico ("Fonte ...") — nesse caso
+   convém baixar este número outra vez. */
+var ADSB_RADIUS_NM = 250;
 var RADIUS_KM      = ADSB_RADIUS_NM * 1.852;
 var INC_MS         = 60 * 1000;
 var AC_MS          = 10 * 1000;
