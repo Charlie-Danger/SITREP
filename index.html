@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.70";
+var VERSAO = "2026-09-24.72";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2750,6 +2750,28 @@ function ligarInteracao(mapa){
 }
 ligarInteracao(mapS);
 
+/* Limitar o quanto o mapa se pode afastar de REF. Sem isto, o zoom por
+   roda/gesto (que mantém fixo o ponto sob o cursor, não o centro do
+   mapa) pode, a zooms muito baixos, deixar o centro a dezenas de graus
+   de distância de REF — tudo o que está correto fica espremido num
+   canto do ecrã, e a próxima vez que se afasta o zoom para procurar
+   outra aeronave, esse desvio soma-se de novo a partir de um centro já
+   errado. Este painel só faz sentido dentro de uma vizinhança de REF
+   (o raio de serviço é ADSB_RADIUS_NM), por isso não há razão para
+   alguma vez ver o mapa-múndi. */
+var MARGEM_LIMITE_GRAUS = 6; /* generoso: cobre bem mais do que o raio de 111 km */
+function limitesRef(){
+  return L.latLngBounds(
+    [REF.lat-MARGEM_LIMITE_GRAUS, REF.lon-MARGEM_LIMITE_GRAUS],
+    [REF.lat+MARGEM_LIMITE_GRAUS, REF.lon+MARGEM_LIMITE_GRAUS]
+  );
+}
+function aplicarLimites(mapa){
+  mapa.setMaxBounds(limitesRef());
+  if (mapa.getMinZoom() < 6) mapa.setMinZoom(6);
+}
+aplicarLimites(mapS);
+
 /* LSA-SAF: lê o GetCapabilities e regista o que lá estiver —
    imune a mudanças de nome no serviço do IPMA. onLayer, se dado, recebe
    (base, nome, tempo) de cada camada registada — serve para guardar a
@@ -2864,6 +2886,26 @@ function frpNear(lat, lon){
 var mapR=null, gRings=null, gFiresR=null, gTrackR=null, gDropR=null, gAcR=null, gAeroR=null;
 var baseDark=null, labelsDark=null, lastZoom=null, ringTimer=null;
 
+/* A vista radar é um ecrã tipo PPI, não um mapa para explorar: REF deve
+   ficar sempre exatamente no centro do ecrã, como um "zero" fixo — nunca
+   à deriva, seja qual for o gesto (roda do rato, pinça, duplo clique). O
+   arrastar fica desligado (não há à onde ir), e depois de qualquer zoom
+   o mapa é recolocado com REF no centro. O cálculo de posição por trás
+   continua a ser lat/lon real do Leaflet — só a câmara é que fica presa. */
+function travarCentroRadar(){
+  if (!mapR) return;
+  mapR.dragging.disable();
+  var aRecentrar = false;
+  mapR.on("zoomend", function(){
+    if (aRecentrar) return;
+    var c = mapR.getCenter();
+    if (Math.abs(c.lat-REF.lat) < 1e-6 && Math.abs(c.lng-REF.lon) < 1e-6) return;
+    aRecentrar = true;
+    mapR.setView([REF.lat, REF.lon], mapR.getZoom(), { animate:false });
+    aRecentrar = false;
+  });
+}
+
 function buildRadar(){
   if (mapR) return;
   mapR = L.map("mapR", { zoomControl:false, preferCanvas:true, maxZoom:16 })
@@ -2872,6 +2914,8 @@ function buildRadar(){
   L.control.scale({ imperial:false, position:"bottomleft" }).addTo(mapR);
   controloRecentrar(mapR).addTo(mapR);
   ligarInteracao(mapR);
+  aplicarLimites(mapR);
+  travarCentroRadar();
 
   mapR.createPane("labels");
   mapR.getPane("labels").style.zIndex = 350;
@@ -4649,6 +4693,11 @@ function setRef(lat, lon, name){
   REF.lat=lat; REF.lon=lon; REF.name=name||REF.name;
   paisRef = null;              /* a posição mudou: reavaliar o território */
   refMarker.setLatLng([lat,lon]);
+  mapS.setMaxBounds(limitesRef());
+  if (mapR){
+    mapR.setMaxBounds(limitesRef());
+    mapR.setView([lat,lon], mapR.getZoom(), { animate:false });
+  }
   pintaRef();
   nomeLocal(lat, lon);
   if (radarReady) drawRings();
