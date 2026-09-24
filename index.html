@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.76";
+var VERSAO = "2026-09-24.77";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2967,6 +2967,35 @@ function animate(){
 if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches){
   setInterval(animate, 500);
 }
+
+/* Diagnóstico: compara, para cada aeronave em memória, a posição bruta
+   recebida da API (a.lat/a.lon) com a posição real do marcador no mapa
+   (mk.getLatLng()) e com o centro atual do mapa vs REF. Serve só para
+   confirmar ou descartar um erro de posicionamento com números, em vez
+   de inspeção visual — chamar diagAeronaves() na consola. */
+function diagAeronaves(){
+  var store = view === "radar" ? marksR : marksS;
+  var mapa = view === "radar" ? mapR : mapS;
+  console.log("centro do mapa:", mapa.getCenter().lat.toFixed(4), mapa.getCenter().lng.toFixed(4),
+              "· REF:", REF.lat.toFixed(4), REF.lon.toFixed(4),
+              "· zoom:", mapa.getZoom());
+  var linhas = acs.map(function(x){
+    var a = x.a, key = a.hex||a.r||(a.flight||"").trim();
+    var m = store[key];
+    if (!m) return { id:key, aviso:"sem marcador" };
+    var real = m.mk.getLatLng();
+    return {
+      id:key,
+      lat_api: a.lat, lon_api: a.lon,
+      lat_marcador: +real.lat.toFixed(5), lon_marcador: +real.lng.toFixed(5),
+      divergencia_m: Math.round(hav(a.lat,a.lon,real.lat,real.lng)*1000),
+      dist_ref_km: x.dist.toFixed(1)
+    };
+  });
+  console.table(linhas);
+  return linhas;
+}
+window.diagAeronaves = diagAeronaves;
 
 /* ---------- foto da aeronave ---------- */
 /* Sem confirmação de que a Planespotters (ou outra fonte) permite pesquisa
