@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.59";
+var VERSAO = "2026-09-24.60";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2613,19 +2613,22 @@ gFirmsS = L.layerGroup().addTo(mapS);
    ligar/desligar dispara overlayadd/overlayremove, que troca a classe
    CSS no contentor do mapa (ver #mapS.cinza acima). */
 var grisS = L.layerGroup();
-var ctlS = L.control.layers(
-  { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM },
-  { "Nomes de povoação":sNomes, "Estradas":sEstradas,
-    "Escala de cinzentos (satélite)":grisS,
-    "Ocorrências":gIncS, "Setas de propagação":gVentoS,
-    "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
-    "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
-    "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
-    "Área ardida — VIIRS NRT":lBaNrt, "Área ardida — hoje":lBaDay,
-    "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea,
-    "Focos sem ocorrência (satélite)":gFirmsS },
-  { collapsed:true }
-).addTo(mapS);
+/* nomeados à parte (em vez de só o literal dentro de L.control.layers)
+   para a memória de camadas abaixo poder percorrer os mesmos nomes que
+   aparecem no controlo, sem duplicar a lista */
+var sBaseLayers = { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM };
+var sOverlays = {
+  "Nomes de povoação":sNomes, "Estradas":sEstradas,
+  "Escala de cinzentos (satélite)":grisS,
+  "Ocorrências":gIncS, "Setas de propagação":gVentoS,
+  "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
+  "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
+  "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
+  "Área ardida — VIIRS NRT":lBaNrt, "Área ardida — hoje":lBaDay,
+  "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea,
+  "Focos sem ocorrência (satélite)":gFirmsS
+};
+var ctlS = L.control.layers(sBaseLayers, sOverlays, { collapsed:true }).addTo(mapS);
 mapS.on("overlayadd", function(e){
   if (e.layer === grisS) mapS.getContainer().classList.add("cinza");
 });
@@ -2642,6 +2645,51 @@ mapS.on("baselayerchange", function(e){
     if (!precisa && mapS.hasLayer(l)) mapS.removeLayer(l);
   });
 });
+
+/* ---------- memória de camadas ----------
+   Guarda que camadas o utilizador ligou/desligou da última vez no
+   SITREP, e reabre sempre assim — sem ser preciso voltar a marcar tudo
+   a cada visita. Só esta vista, por agora (é a que foi pedida); o radar
+   continua sempre com o conjunto fixo que já tinha em buildRadar(). Sem
+   nada guardado (primeira visita, ou localStorage limpo), fica
+   exatamente o que já vem de fábrica no código acima — nunca força um
+   estado por omissão diferente do que já existia. */
+var LAYERS_KEY = "sitrep_layers_sitrep";
+function lerLayersGuardadas(){
+  try { return JSON.parse(localStorage.getItem(LAYERS_KEY) || "null"); }
+  catch(e){ return null; }
+}
+function guardarLayersAtuais(){
+  try {
+    var on = Object.keys(sOverlays).filter(function(n){ return mapS.hasLayer(sOverlays[n]); });
+    var baseAtiva = Object.keys(sBaseLayers).filter(function(n){ return mapS.hasLayer(sBaseLayers[n]); })[0] || null;
+    localStorage.setItem(LAYERS_KEY, JSON.stringify({ base:baseAtiva, on:on }));
+  } catch(e){}
+}
+function aplicarLayersGuardadas(){
+  var g = lerLayersGuardadas();
+  if (!g) return;
+  if (g.base && sBaseLayers[g.base]){
+    Object.keys(sBaseLayers).forEach(function(n){
+      if (n !== g.base && mapS.hasLayer(sBaseLayers[n])) mapS.removeLayer(sBaseLayers[n]);
+    });
+    if (!mapS.hasLayer(sBaseLayers[g.base])) mapS.addLayer(sBaseLayers[g.base]);
+  }
+  Object.keys(sOverlays).forEach(function(n){
+    var deviaEstarOn = (g.on||[]).indexOf(n) !== -1;
+    var estaOn = mapS.hasLayer(sOverlays[n]);
+    if (deviaEstarOn && !estaOn) mapS.addLayer(sOverlays[n]);
+    if (!deviaEstarOn && estaOn) mapS.removeLayer(sOverlays[n]);
+  });
+  /* a "escala de cinzentos" não é uma camada visual própria — o efeito
+     real é a classe CSS no contentor (ver os dois listeners acima), e
+     essa classe só troca ao clicar na caixa. Como esta reposição não
+     passa por nenhum clique, repõe-se a classe aqui à mão, a condizer
+     com o estado guardado. */
+  mapS.getContainer().classList.toggle("cinza", (g.on||[]).indexOf("Escala de cinzentos (satélite)") !== -1);
+}
+mapS.on("overlayadd overlayremove baselayerchange", guardarLayersAtuais);
+aplicarLayersGuardadas();
 
 var refMarker = L.marker([REF.lat,REF.lon], {
   icon:L.divIcon({ className:"", html:'<div class="ref-icon"></div>',
