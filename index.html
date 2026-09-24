@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.68";
+var VERSAO = "2026-09-24.70";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2718,6 +2718,38 @@ refMarker.on("dragend", function(){
   var p = refMarker.getLatLng(); setRef(p.lat, p.lng, "Posição manual");
 });
 
+/* Botão "recentrar" — o zoom por roda/gesto mantém fixo o ponto sob o
+   cursor, não o centro do mapa; afastar repetidamente sem o cursor
+   sobre Arganil pode, a zooms muito baixos, deixar o centro a dezenas
+   de graus de distância (a janela do mapa "foge" para longe de REF,
+   mesmo com tudo desenhado no sítio certo). Isto dá uma forma de voltar
+   num clique, em vez de procurar o grupo de aeronaves perdido num canto
+   do ecrã. */
+function controloRecentrar(mapa){
+  var Recentrar = L.Control.extend({
+    options: { position:"topleft" },
+    onAdd: function(){
+      var d = L.DomUtil.create("div", "leaflet-bar leaflet-control recentrar-ctl");
+      var a = L.DomUtil.create("a", "", d);
+      a.href = "#"; a.title = "Recentrar em "+REF.name;
+      a.innerHTML = "⌂";
+      L.DomEvent.on(a, "click", function(e){
+        L.DomEvent.stop(e);
+        mapa.setView([REF.lat, REF.lon], Math.max(mapa.getZoom(), 10));
+      });
+      return d;
+    }
+  });
+  return new Recentrar();
+}
+controloRecentrar(mapS).addTo(mapS);
+
+function ligarInteracao(mapa){
+  mapa.on("movestart zoomstart", function(){ interagindoMapa = true; });
+  mapa.on("moveend zoomend", function(){ interagindoMapa = false; });
+}
+ligarInteracao(mapS);
+
 /* LSA-SAF: lê o GetCapabilities e regista o que lá estiver —
    imune a mudanças de nome no serviço do IPMA. onLayer, se dado, recebe
    (base, nome, tempo) de cada camada registada — serve para guardar a
@@ -2838,6 +2870,8 @@ function buildRadar(){
           .setView([REF.lat,REF.lon], 10);
   L.control.zoom({ position:"bottomright" }).addTo(mapR);
   L.control.scale({ imperial:false, position:"bottomleft" }).addTo(mapR);
+  controloRecentrar(mapR).addTo(mapR);
+  ligarInteracao(mapR);
 
   mapR.createPane("labels");
   mapR.getPane("labels").style.zIndex = 350;
@@ -3204,8 +3238,17 @@ function dispPosicao(m, renderT){
   };
 }
 
+var interagindoMapa = false;
 function animate(){
   if (document.hidden) return;
+  /* enquanto se arrasta ou muda o zoom, a extrapolação por tempo decorrido
+     continua a correr por baixo — e alguns segundos de interação chegam
+     para uma aeronave rápida "avançar" vários km ao longo do rumo dela.
+     Isso é matematicamente correto, mas dá a sensação de a posição
+     "fugir" precisamente enquanto se está a mexer no mapa. Congelar o
+     desenho durante a interação (sem parar o relógio interno) resolve
+     essa sensação sem alterar a extrapolação em si. */
+  if (interagindoMapa) return;
   var store = view === "radar" ? marksR : marksS;
   var now = Date.now(), renderT = now - DR_RENDER_DELAY_MS;
   Object.keys(store).forEach(function(k){
