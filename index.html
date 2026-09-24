@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.80";
+var VERSAO = "2026-09-24.81";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2905,20 +2905,46 @@ function setTxt(m,txt,fire){
   t.className = "tag"+(fire?" fire":"");
 }
 
-/* mira de depuração: um pequeno alvo magenta pousado exatamente nas
-   coordenadas que o Leaflet regista para o marcador clicado — sem
-   ícone nem rotação nem CSS custom, só um L.circleMarker simples, para
-   isolar se o desvio visual vem do desenho do ícone (acIcon/rotação)
-   ou de outra coisa qualquer. */
-var debugMira = null;
-function debugCrosshair(latlng, map){
+/* mira de depuração: dois alvos e uma linha entre eles.
+   Magenta = coordenadas reais que o Leaflet regista para o marcador
+   (getLatLng(), sem ícone nem rotação nem CSS — a âncora "de verdade").
+   Ciano = centro do retângulo que o ÍCONE desenhado (o <div> do
+   divIcon, já com a rotação aplicada) ocupa mesmo no ecrã, convertido
+   de volta para lat/lon via containerPointToLatLng(). Se coincidirem,
+   o ícone está a desenhar-se em cima da sua própria âncora. Se não
+   coincidirem, a linha entre os dois mostra o desvio exato. */
+var debugMiraReal = null, debugMiraIcone = null, debugLinha = null;
+function debugCrosshair(m, map){
   if (!map) return;
-  if (debugMira) map.removeLayer(debugMira);
-  debugMira = L.circleMarker(latlng, {
+  var latlngReal = m.mk.getLatLng();
+  var el = m.mk.getElement();
+  if (debugMiraReal) map.removeLayer(debugMiraReal);
+  if (debugMiraIcone) map.removeLayer(debugMiraIcone);
+  if (debugLinha) map.removeLayer(debugLinha);
+
+  debugMiraReal = L.circleMarker(latlngReal, {
     radius:9, color:"#ff00ff", weight:2, fill:false,
     dashArray:"3,3", interactive:false
   }).addTo(map);
-  console.log("mira em", latlng.lat.toFixed(6), latlng.lng.toFixed(6));
+
+  if (!el){ console.log("mira: sem elemento DOM do ícone"); return; }
+  var r = el.getBoundingClientRect();
+  var mr = map.getContainer().getBoundingClientRect();
+  var pt = L.point(r.left + r.width/2 - mr.left, r.top + r.height/2 - mr.top);
+  var latlngIcone = map.containerPointToLatLng(pt);
+
+  debugMiraIcone = L.circleMarker(latlngIcone, {
+    radius:9, color:"#00e5ff", weight:2, fill:false,
+    dashArray:"3,3", interactive:false
+  }).addTo(map);
+
+  debugLinha = L.polyline([latlngReal, latlngIcone], {
+    color:"#ffff00", weight:2, dashArray:"2,6", interactive:false
+  }).addTo(map);
+
+  console.log("mira REAL (magenta):", latlngReal.lat.toFixed(6), latlngReal.lng.toFixed(6),
+              "· mira ÍCONE (ciano):", latlngIcone.lat.toFixed(6), latlngIcone.lng.toFixed(6),
+              "· desvio:", Math.round(hav(latlngReal.lat,latlngReal.lng,latlngIcone.lat,latlngIcone.lng)*1000)+" m");
 }
 
 function upsert(store, group, key, x, col, txt, comTag, popup){
@@ -2933,7 +2959,7 @@ function upsert(store, group, key, x, col, txt, comTag, popup){
        visual do ícone/seta desenhado — se não coincidirem, confirma
        que o desenho do ícone diverge da sua própria âncora geográfica */
     m.mk.on("click", function(e){
-      debugCrosshair(e.target.getLatLng(), view === "radar" ? mapR : mapS);
+      debugCrosshair(m, view === "radar" ? mapR : mapS);
     });
   } else if (m.col!==col || m.fire!==x.fire){
     m.mk.setIcon(acIcon(col,trk,x.fire,txt,comTag));
