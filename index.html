@@ -926,7 +926,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.86";
+var VERSAO = "2026-09-25.87";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2963,7 +2963,10 @@ function loadFirms(){
         });
       });
       firmsPontosRaw = pontos;
-      DIAG_FIRMS = { ok:true, msg:pontos.length+" foco(s) de satélite na área" };
+      DIAG_FIRMS = j.orcamento_parado
+        ? { ok:false, msg:"orçamento da chave FIRMS poupado (limite de 10 min da NASA) — "+
+            pontos.length+" foco(s) só da(s) fonte(s) já consultada(s)" }
+        : { ok:true, msg:pontos.length+" foco(s) de satélite na área" };
     }
     recomputeFirms(); renderDiag();
   }).catch(function(e){
