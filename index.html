@@ -926,7 +926,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.85";
+var VERSAO = "2026-09-24.86";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2765,6 +2765,21 @@ function circlePts(lat, lon, rM, n){
   return pts;
 }
 function ptAt(lat,lon,rM,b){ return circlePts(lat,lon,rM,360)[Math.round(((b%360)+360)%360)]; }
+/* Para os RAIOS da rosa dos ventos (linhas retas a partir do centro),
+   não usa rumo geodésico real como ptAt(): rumo geodésico de 90°
+   (este) não é uma reta de latitude constante — desvia para sul à
+   medida que a distância aumenta (confirmado: ~14 km de desvio aos
+   463 km/250 NM), o que visualmente parece uma linha torta. Isto é
+   normal em navegação esférica, mas errado para uma bússola de radar,
+   que deve desenhar raios DIREITOS a partir do centro — por isso usa
+   a mesma aproximação plana (metros por grau) já usada no resto do
+   painel para distâncias curtas/médias, não trigonometria esférica.
+   Os ANÉIS de distância continuam a usar ptAt()/circlePts() — esses
+   representam distância real, e é correto serem geodésicos. */
+function ptFlat(lat,lon,rM,b){
+  var r=b*Math.PI/180, dx=rM*Math.sin(r), dy=rM*Math.cos(r);
+  return [ lat+(dy/111320), lon+(dx/(111320*Math.cos(lat*Math.PI/180))) ];
+}
 
 var PASSOS=[0.5,1,2,5,10,20,25,50];
 function passoAnel(){
@@ -2821,12 +2836,12 @@ function drawRings(){
   for (var brg=0; brg<360; brg+=10){
     var card = brg%90===0, rot = brg%30===0;
     var inner = card ? 0 : rMax*(rot?0.955:0.978);
-    L.polyline([ inner?ptAt(REF.lat,REF.lon,inner,brg):[REF.lat,REF.lon],
-                 ptAt(REF.lat,REF.lon,rMax,brg) ], {
+    L.polyline([ inner?ptFlat(REF.lat,REF.lon,inner,brg):[REF.lat,REF.lon],
+                 ptFlat(REF.lat,REF.lon,rMax,brg) ], {
       color: card?cRing:cEdge, weight: card?1:1.6, opacity: card?0.6:0.95, interactive:false
     }).addTo(gRings);
     if (rot){
-      L.marker(ptAt(REF.lat,REF.lon,rMax*1.045,brg), {
+      L.marker(ptFlat(REF.lat,REF.lon,rMax*1.045,brg), {
         icon:L.divIcon({ className:"",
           html:'<div class="brg-lbl">'+String(brg).padStart(3,"0")+'</div>',
           iconSize:[30,12], iconAnchor:[15,6] }), interactive:false
