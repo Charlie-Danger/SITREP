@@ -337,6 +337,13 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .ring-lbl.hi{color:var(--ink-mid);font-weight:600}
 .brg-lbl{font-size:9.5px;font-weight:600;color:var(--ink-mid);letter-spacing:.06em}
 
+/* ---------- aeródromos (só vista radar) ---------- */
+.aero-sym{pointer-events:auto}
+.aero-ico{display:block;margin:0 auto}
+.aero-lbl{font-family:var(--f-mono);font-size:9px;font-weight:600;color:var(--ink-mid);
+  text-align:center;white-space:nowrap;letter-spacing:.02em;margin-top:1px;
+  text-shadow:0 0 4px var(--void),0 0 2px var(--void)}
+
 /* foto no popup */
 .pp-photo{margin-top:8px}
 .pp-img{display:block;width:100%;height:auto;border:1px solid var(--rule-hi)}
@@ -344,6 +351,8 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
          overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--f-mono)}
 .pp-wait{font-size:10px;color:var(--ink-mute);margin-top:6px;font-style:italic}
 .pp-alerta{color:var(--red);font-weight:600}
+.pp-mil{color:var(--violet);font-weight:600}
+.mil-badge{color:var(--violet);font-weight:600}
 .pp-gen-note{font-size:9.5px;color:var(--amber);margin-bottom:3px;font-style:italic}
 
 /* silhueta por tipo — "pokedex" de aeronaves */
@@ -907,7 +916,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-23.50";
+var VERSAO = "2026-09-24.52";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1042,6 +1051,50 @@ function proxies(){
 }
 
 var ADSBX_HOST = "adsbexchange-com1.p.rapidapi.com";
+
+/* Aeroportos e aeródromos de Portugal (continente e ilhas) — só os
+   classificados "large_airport"/"medium_airport" na base aberta OurAirports
+   (ourairports.com/data/, CC0/domínio público; espelho consultado em
+   ourairports.com/countries/PT/airports.hxl, 2026-09-24). Fica de fora a
+   categoria "small_airport" dessa base: mistura aeródromos municipais reais
+   com pistas agrícolas e campos de ultraleves privados sem sinalização nem
+   dados sempre fiáveis — nomeadamente fica de fora o Aeródromo de Coja, no
+   próprio concelho de Arganil, e outros pequenos aeródromos da região
+   (Lousã, Seia, Pampilhosa da Serra). Diz quais queres e junto-os à mão,
+   em vez de eu decidir sozinho quais "parecem" reais nessa lista. */
+var AERODROMOS = [
+  { ic:"LPPT", nome:"Humberto Delgado (Lisboa)",  lat:38.7813,    lon:-9.13592,   t:"g", mun:"Lisboa" },
+  { ic:"LPPR", nome:"Francisco Sá Carneiro (Porto)", lat:41.2481, lon:-8.68139,   t:"g", mun:"Porto" },
+  { ic:"LPFR", nome:"Faro",                        lat:37.015909, lon:-7.970939,  t:"g", mun:"Faro" },
+  { ic:"LPMA", nome:"Cristiano Ronaldo (Funchal)",  lat:32.697812, lon:-16.774613, t:"g", mun:"Funchal" },
+  { ic:"LPPD", nome:"João Paulo II (Ponta Delgada)",lat:37.741199, lon:-25.697901, t:"g", mun:"Ponta Delgada" },
+  { ic:"LPLA", nome:"Lajes",                        lat:38.761799, lon:-27.090799, t:"m", mun:"Praia da Vitória" },
+  { ic:"LPHR", nome:"Horta",                        lat:38.519901, lon:-28.715900, t:"m", mun:"Horta" },
+  { ic:"LPPM", nome:"Portimão",                     lat:37.1493,   lon:-8.58396,   t:"m", mun:"Portimão" },
+  { ic:"LPCS", nome:"Cascais",                      lat:38.724998, lon:-9.35523,   t:"m", mun:"Cascais" },
+  { ic:"LPFL", nome:"Flores",                       lat:39.455299, lon:-31.131399, t:"m", mun:"Santa Cruz das Flores" },
+  { ic:"LPAZ", nome:"Santa Maria",                  lat:36.971401, lon:-25.170601, t:"m", mun:"Vila do Porto" },
+  { ic:"LPSJ", nome:"São Jorge",                    lat:38.665501, lon:-28.1758,   t:"m", mun:"Velas" },
+  { ic:"LPPS", nome:"Porto Santo",                  lat:33.073399, lon:-16.35,     t:"m", mun:"Vila Baleira" },
+  { ic:"LPEV", nome:"Évora (aeródromo)",            lat:38.533501, lon:-7.88964,   t:"m", mun:"Évora" },
+  { ic:"LPPI", nome:"Pico",                         lat:38.554298, lon:-28.441299, t:"m", mun:"Ilha do Pico" },
+  { ic:"LPCO", nome:"Coimbra (aeródromo municipal)",lat:40.158758, lon:-8.470815,  t:"m", mun:"Coimbra" },
+  { ic:"LPBG", nome:"Bragança",                     lat:41.8578,   lon:-6.70713,   t:"m", mun:"Bragança" },
+  { ic:"LPVZ", nome:"Viseu (Gonçalves Lobato)",     lat:40.725498, lon:-7.88899,   t:"m", mun:"Viseu" },
+  { ic:"LPBJ", nome:"Beja (aeroporto/base aérea)",  lat:38.078899, lon:-7.9324,    t:"m", mun:"Beja" },
+  { ic:"LPGR", nome:"Graciosa",                     lat:39.092201, lon:-28.029800, t:"m", mun:"Santa Cruz da Graciosa" },
+  { ic:"LPSO", nome:"Ponte de Sor (aeródromo municipal)", lat:39.211545, lon:-8.057787, t:"m", mun:"Ponte de Sor" },
+  { ic:"LPCB", nome:"Castelo Branco (aeródromo)",   lat:39.844528, lon:-7.439875,  t:"m", mun:"Castelo Branco" },
+  { ic:"LPOV", nome:"Ovar (base aérea)",            lat:40.915901, lon:-8.64592,   t:"m", mun:"Ovar" },
+  { ic:"LPST", nome:"Sintra (base aérea)",          lat:38.8311,   lon:-9.33955,   t:"m", mun:"Sintra" },
+  { ic:"LPMT", nome:"Montijo (base aérea)",         lat:38.70929,  lon:-9.03368,   t:"m", mun:"Montijo" },
+  { ic:"LPBR", nome:"Braga (aeródromo municipal)",  lat:41.587,    lon:-8.445189,  t:"m", mun:"Braga" },
+  { ic:"LPVR", nome:"Vila Real",                    lat:41.2743,   lon:-7.72047,   t:"m", mun:"Vila Real" },
+  { ic:"LPMR", nome:"Monte Real (base aérea)",      lat:39.828335, lon:-8.8875,    t:"m", mun:"" },
+  { ic:"LPVL", nome:"Vilar de Luz (aeródromo)",     lat:41.27729,  lon:-8.516209,  t:"m", mun:"Maia" },
+  { ic:"LPAR", nome:"Alverca (base aérea)",         lat:38.883301, lon:-9.0301,    t:"m", mun:"Vila Franca de Xira" },
+  { ic:"LPTN", nome:"Tancos (base aérea)",          lat:39.475101, lon:-8.36458,   t:"m", mun:"Tancos" }
+];
 
 /* tipos ICAO usados em combate a incêndios */
 var FIRE_TYPES = {
@@ -2083,6 +2136,22 @@ function classify(a){
   return { hit:false, label:t||"—", reason:"" };
 }
 
+/* Aeronave militar/estatal: lê o bit 0 de "dbFlags", campo documentado do
+   próprio readsb (github.com/wiedehopf/readsb, README-json.md: "military =
+   dbFlags & 1") — o mesmo motor por trás do adsb.lol/adsb.fi que o painel já
+   usa. Não é uma lista de prefixos de indicativo nem de gamas de hex
+   inventada por mim: é o sinalizador que a própria base de dados de
+   aeronaves do readsb já publica, quando a fonte o preenche.
+   [Não verificado] se as fontes concretas configuradas aqui (adsb.lol,
+   adsb.fi) preenchem sempre este campo — nunca confirmei com uma amostra ao
+   vivo; na ausência dele isto simplesmente nunca assinala nada, sem
+   quebrar. Não há filtro extra por país: a geografia já vem do raio à volta
+   de REF (Arganil por omissão), por isso "militar" aqui já é "militar
+   dentro do alcance ADS-B configurado". */
+function ehMilitar(a){
+  return !!(num(a.dbFlags) & 1);
+}
+
 var acSource = "", acVia = "", acFmt = "";
 
 function ingestAircraft(list, src, via, fmt){
@@ -2093,9 +2162,11 @@ function ingestAircraft(list, src, via, fmt){
     var c = classify(a);
     var alerta = squawkAlerta(a);
     var novoTipo = registarAvistamento(a);
+    var mil = ehMilitar(a);
     return { a:a, fire:c.hit, label:c.label, reason:c.reason,
              dist:hav(REF.lat, REF.lon, a.lat, a.lon),
-             alerta:alerta, novoTipo:novoTipo, interessante:!!(alerta || novoTipo) };
+             alerta:alerta, novoTipo:novoTipo, mil:mil,
+             interessante:!!(alerta || novoTipo) };
   }).sort(function(x,y){
     if (x.fire !== y.fire) return x.fire ? -1 : 1;
     return x.dist - y.dist;
@@ -2534,7 +2605,7 @@ function frpNear(lat, lon){
 /* ============================================================
    MAPA — RADAR (criado só quando a vista é aberta)
    ============================================================ */
-var mapR=null, gRings=null, gFiresR=null, gTrackR=null, gDropR=null, gAcR=null;
+var mapR=null, gRings=null, gFiresR=null, gTrackR=null, gDropR=null, gAcR=null, gAeroR=null;
 var baseDark=null, labelsDark=null, lastZoom=null, ringTimer=null;
 
 function buildRadar(){
@@ -2572,12 +2643,13 @@ function buildRadar(){
   gTrackR = L.layerGroup().addTo(mapR);
   gDropR = L.layerGroup().addTo(mapR);
   gAcR = L.layerGroup().addTo(mapR);
+  gAeroR = L.layerGroup().addTo(mapR);
 
   L.control.layers({ "Escuro (radar)":baseDark, "Satélite":rSat },
                    { "Nomes de povoação":labelsDark,
                      "Anéis e vento":gRings, "Ocorrências":gFiresR,
                      "Trajetórias de combate":gTrackR, "Descargas prováveis":gDropR,
-                     "Aeronaves":gAcR },
+                     "Aeronaves":gAcR, "Aeródromos":gAeroR },
                    { collapsed:true, position:"topright" }).addTo(mapR);
 
   lastZoom = mapR.getZoom();
@@ -2593,7 +2665,7 @@ function buildRadar(){
   longPress(mapR);
 
   radarReady = true;
-  drawRings(); drawFires();
+  drawRings(); drawFires(); drawAerodromos();
 }
 
 /* círculo geodésico: em Mercator um raio em pixels dá uma elipse */
@@ -2696,6 +2768,32 @@ function drawFires(){
       fillColor:col, fillOpacity:0.16 })
       .bindPopup('<b>'+esc(f.freguesia||f.concelho||"Ocorrência")+'</b><br>'+esc(f.status||""))
       .addTo(gFiresR);
+  });
+}
+
+/* Ícones estáticos (posição fixa, sem cor dependente de dados) — por isso
+   só precisam de ser redesenhados quando o TEMA muda (cor vem de cssVar),
+   nunca quando REF se move: ao contrário dos anéis, não são geodésicos
+   relativos a REF, por isso não há geometria a recalcular ao arrastar o
+   mapa nem ao mudar de zoom (o Leaflet reposiciona o marcador sozinho). */
+function drawAerodromos(){
+  if (!mapR) return;
+  gAeroR.clearLayers();
+  var col = cssVar("--ink-mid");
+  AERODROMOS.forEach(function(ad){
+    var r = ad.t==="g" ? 6 : 4.5;
+    var s = r*2+2; // lado do viewBox: 2r (losango) + 1px de folga de cada lado
+    L.marker([ad.lat,ad.lon], {
+      icon:L.divIcon({ className:"aero-sym",
+        html:'<svg class="aero-ico" width="'+s+'" height="'+s+'" viewBox="0 0 '+s+' '+s+'">'+
+             '<polygon points="'+(r+1)+',1 '+(s-1)+','+(r+1)+' '+(r+1)+','+(s-1)+' 1,'+(r+1)+
+             '" fill="none" stroke="'+col+
+             '" stroke-width="'+(ad.t==="g"?1.6:1.2)+'"/></svg>'+
+             '<div class="aero-lbl">'+esc(ad.ic)+'</div>',
+        iconSize:[s, s+14], iconAnchor:[r+1, r+1] })
+    }).bindPopup('<b>'+esc(ad.ic)+'</b> · '+esc(ad.nome)+
+        (ad.mun?'<br><span class="mono">'+esc(ad.mun)+'</span>':''))
+      .addTo(gAeroR);
   });
 }
 
@@ -3330,6 +3428,8 @@ function acPopup(x){
     '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s</span><br>'+
     '<span class="mono">'+(x.fire ? (x.reason==="tipo"
       ? "Tipo conhecido de combate" : "Perfil de voo compatível") : "Tráfego geral")+'</span>'+
+    (x.mil ? '<br><span class="mono pp-mil">◆ aeronave militar/estatal '+
+      '(indicador da base de dados da fonte ADS-B)</span>' : '')+
     (x.interessante ? '<br><span class="mono pp-alerta">⚠ '+
       esc(x.alerta || "primeira vez a ver este tipo")+'</span>' : '')+
     '<div class="pp-photo"></div><div class="pp-poster"></div></div>';
@@ -3560,6 +3660,7 @@ function renderWeather(){
 
 function renderAircraft(){
   var nFire = acs.filter(function(x){ return x.fire; }).length;
+  var nMil = acs.filter(function(x){ return x.mil; }).length;
   var ages = acs.map(function(x){ return num(x.a.seen_pos); }).sort(function(p,q){ return p-q; });
   var med = ages.length ? Math.round(ages[Math.floor(ages.length/2)]) : 0;
 
@@ -3568,6 +3669,7 @@ function renderAircraft(){
     $("cAc").textContent = acs.length+(nFire?" · "+nFire+" comb.":"");
     $("acNote").textContent = "Fonte "+acSource+(acVia&&acVia!=="direto"?" via "+acVia:"")+
       " · raio "+ADSB_RADIUS_NM+" NM · "+(nFire?nFire+" compatíveis com combate":"nenhuma de combate")+
+      (nMil?" · "+nMil+" militar(es)":"")+
       (ages.length?" · posições com "+med+" s em mediana":"")+
       (acFmt==="opensky"?" · OpenSky não publica tipo":"");
 
@@ -3576,7 +3678,8 @@ function renderAircraft(){
       var a=x.a, key=a.hex||a.r||(a.flight||"").trim(); if (!key) return;
       var id=(a.flight||"").trim()||a.r||key;
       var alt=a.alt_baro==="ground"?"solo":Math.round(num(a.alt_baro)).toLocaleString("pt-PT")+" ft";
-      var col = x.interessante ? cssVar("--red") : (x.fire ? cssVar("--orange") : cssVar("--blue"));
+      var col = x.interessante ? cssVar("--red") :
+                (x.mil ? cssVar("--violet") : (x.fire ? cssVar("--orange") : cssVar("--blue")));
 
       if (idx < 30){
         html += '<div class="ac'+(x.fire?" fire":"")+(x.interessante?" interessante":"")+
@@ -3585,7 +3688,7 @@ function renderAircraft(){
             'style="transform:rotate('+Math.round(num(a.track))+'deg)">'+
             '<path d="M12 2 L15.5 13 L12 11 L8.5 13 Z" fill="'+col+'"/>'+
             '<path d="M12 11 L14 20 L12 18.8 L10 20 Z" fill="'+col+'" opacity="0.75"/></svg></div>'+
-          '<div class="ac-main"><div class="ac-id">'+esc(id)+'</div>'+
+          '<div class="ac-main"><div class="ac-id">'+esc(id)+(x.mil?' <span class="mil-badge">MIL</span>':'')+'</div>'+
           '<div class="ac-sub">'+esc(x.label)+(a.r?' · '+esc(a.r):'')+' · '+
             ktKmh(num(a.gs))+' km/h · '+x.dist.toFixed(0)+' km'+
             (num(a.seen_pos)>20?' · há '+Math.round(num(a.seen_pos))+' s':'')+'</div></div>'+
@@ -3605,7 +3708,8 @@ function renderAircraft(){
     if ($("rPegaTxt")) $("rPegaTxt").textContent = "Contactos · "+acs.length+
       (nFire ? " · "+nFire+" combate" : "");
     $("rNfire").textContent = String(nFire);
-    $("rSrc").textContent = acSource+" · "+ADSB_RADIUS_NM+" NM · posições com "+med+" s";
+    $("rSrc").textContent = acSource+" · "+ADSB_RADIUS_NM+" NM · posições com "+med+" s"+
+      (nMil?" · "+nMil+" militar(es)":"");
 
     [["rSrtDist","dist","Dist"],["rSrtAlt","alt","Alt"]].forEach(function(p){
       var el = $(p[0]); if (!el) return;
@@ -3635,12 +3739,14 @@ function renderAircraft(){
       var a=x.a, key=a.hex||a.r||(a.flight||"").trim(); if (!key) return;
       var id=(a.flight||"").trim()||a.r||key;
       var fl=a.alt_baro==="ground"?"SOLO":String(Math.round(num(a.alt_baro)/100)).padStart(3,"0");
-      var col = x.interessante ? cssVar("--red") : (x.fire ? cssVar("--ac-fire") : cssVar("--ac-gen"));
+      var col = x.interessante ? cssVar("--red") :
+                (x.mil ? cssVar("--violet") : (x.fire ? cssVar("--ac-fire") : cssVar("--ac-gen")));
       /* Todas as aeronaves levam etiqueta. Em ecrã estreito fica só o
          indicativo: nível e velocidade estão na tabela, que é onde se
          comparam, e duas linhas por contacto enchiam o mapa. */
       var estreito = window.innerWidth <= 760;
-      var txt = estreito ? esc(id) : esc(id)+"<br>"+fl+"  "+ktKmh(num(a.gs));
+      var milTag = x.mil ? " MIL" : "";
+      var txt = estreito ? esc(id)+esc(milTag) : esc(id)+esc(milTag)+"<br>"+fl+"  "+ktKmh(num(a.gs));
 
       if (idx < 22){
         var tk = tracks[key], ag = "—";
@@ -3651,7 +3757,7 @@ function renderAircraft(){
         rows += '<div class="row'+(x.fire?" fire":"")+(x.interessante?" interessante":"")+
           (num(a.seen_pos)>25?" stale":"")+
           '" data-lat="'+a.lat+'" data-lng="'+a.lon+'">'+
-          '<span class="cs">'+esc(id)+'</span><span class="ty">'+esc(x.label)+'</span>'+
+          '<span class="cs">'+esc(id)+(x.mil?' <span class="mil-badge">MIL</span>':'')+'</span><span class="ty">'+esc(x.label)+'</span>'+
           '<span class="n">'+x.dist.toFixed(0)+'</span>'+
           '<span class="n">'+(a.alt_baro==="ground"?"solo":Math.round(num(a.alt_baro)).toLocaleString("pt-PT"))+'</span>'+
           '<span class="n">'+ktKmh(num(a.gs))+'</span><span class="n">'+ag+'</span></div>';
@@ -3946,7 +4052,7 @@ function aplicaTema(){
   $("btnTheme").textContent = theme === "dia" ? "Modo radar" : "Modo dia";
   /* as cores desenhadas vêm dos tokens: é preciso redesenhar */
   renderIncidents(); renderRoads(); renderWeather();
-  if (radarReady){ drawRings(); drawFires(); }
+  if (radarReady){ drawRings(); drawFires(); drawAerodromos(); }
   var store = view==="radar" ? marksR : marksS;
   Object.keys(store).forEach(function(k){
     var m = store[k];
