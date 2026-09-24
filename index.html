@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.65";
+var VERSAO = "2026-09-24.66";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2579,6 +2579,7 @@ function detectDrops(){
    MAPA — SITREP
    ============================================================ */
 var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true }).setView([REF.lat,REF.lon],10);
+L.control.scale({ imperial:false, position:"bottomleft" }).addTo(mapS);
 
 var sSat  = L.tileLayer(ESRI+"World_Imagery/MapServer/tile/{z}/{y}/{x}",
               { maxZoom:18, attribution:"Imagery &copy; Esri", className:"sat-tiles" }).addTo(mapS);
@@ -2836,6 +2837,7 @@ function buildRadar(){
   mapR = L.map("mapR", { zoomControl:false, preferCanvas:true, maxZoom:16 })
           .setView([REF.lat,REF.lon], 10);
   L.control.zoom({ position:"bottomright" }).addTo(mapR);
+  L.control.scale({ imperial:false, position:"bottomleft" }).addTo(mapR);
 
   mapR.createPane("labels");
   mapR.getPane("labels").style.zIndex = 350;
