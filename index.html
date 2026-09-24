@@ -916,7 +916,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.55";
+var VERSAO = "2026-09-24.56";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2804,15 +2804,27 @@ function drawAerodromos(){
        à primeira vista (como nas cartas aeronáuticas), sem se confundir
        com os triângulos das aeronaves em voo nos outros marcadores. */
     var k = r*0.62;
+    /* O basemap por baixo pode ser o Esri escuro OU o fallback OSM claro
+       (tileerror) — uma cor neutra única falha contra um dos dois. Por
+       isso o traço é desenhado três vezes, do mais largo para o mais
+       estreito: branco (contraste em fundo escuro), preto (contraste em
+       fundo claro) e por cima a cor real do tema — sanduíche de contraste,
+       sem depender de qual basemap está realmente visível. */
+    function tracos(strokeCol, strokeW, op){
+      return '<polygon points="'+cx+',1 '+(s-1)+','+cy+' '+cx+','+(s-1)+' 1,'+cy+
+           '" fill="none" stroke="'+strokeCol+'" stroke-width="'+strokeW+'" opacity="'+op+'"/>'+
+           '<line x1="'+(cx-k)+'" y1="'+(cy+k*0.55)+'" x2="'+(cx+k)+'" y2="'+(cy-k*0.55)+
+           '" stroke="'+strokeCol+'" stroke-width="'+(strokeW*0.8)+'" stroke-linecap="round" opacity="'+op+'"/>'+
+           '<line x1="'+(cx-k*0.62)+'" y1="'+(cy-k*0.85)+'" x2="'+(cx+k*0.62)+'" y2="'+(cy+k*0.85)+
+           '" stroke="'+strokeCol+'" stroke-width="'+(strokeW*0.8)+'" stroke-linecap="round" opacity="'+op+'"/>';
+    }
     L.marker([ad.lat,ad.lon], {
       icon:L.divIcon({ className:"aero-sym",
         html:'<svg class="aero-ico" width="'+s+'" height="'+s+'" viewBox="0 0 '+s+' '+s+'">'+
-             '<polygon points="'+cx+',1 '+(s-1)+','+cy+' '+cx+','+(s-1)+' 1,'+cy+
-             '" fill="none" stroke="'+col+'" stroke-width="'+w+'"/>'+
-             '<line x1="'+(cx-k)+'" y1="'+(cy+k*0.55)+'" x2="'+(cx+k)+'" y2="'+(cy-k*0.55)+
-             '" stroke="'+col+'" stroke-width="'+(w*0.8)+'" stroke-linecap="round"/>'+
-             '<line x1="'+(cx-k*0.62)+'" y1="'+(cy-k*0.85)+'" x2="'+(cx+k*0.62)+'" y2="'+(cy+k*0.85)+
-             '" stroke="'+col+'" stroke-width="'+(w*0.8)+'" stroke-linecap="round"/></svg>'+
+             tracos("#fff", w+2.2, 0.9)+
+             tracos("#000", w+1.1, 0.9)+
+             tracos(col, w, 1)+
+             '</svg>'+
              '<div class="aero-lbl">'+esc(ad.ic)+'</div>',
         iconSize:[s, s+14], iconAnchor:[r+1, r+1] })
     }).bindPopup('<b>'+esc(ad.ic)+'</b> · '+esc(ad.nome)+
