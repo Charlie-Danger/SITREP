@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.62";
+var VERSAO = "2026-09-24.65";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2332,6 +2332,14 @@ function ingestAircraft(list, src, via, fmt){
              dist:hav(REF.lat, REF.lon, a.lat, a.lon),
              alerta:alerta, novoTipo:novoTipo, mil:mil,
              interessante:!!(alerta || novoTipo) };
+  }).filter(function(x){
+    /* Algumas fontes (sobretudo mirrors readsb e o OpenSky em latitudes
+       altas) devolvem, por vezes, contactos muito fora do parâmetro de
+       raio pedido — dados MLAT residuais ou bounding boxes maiores do
+       que o esperado. Sem este filtro esses contactos ficam desenhados
+       na posição real deles, que pode estar a milhares de km — visível
+       só quando se afasta o zoom o suficiente para entrarem no ecrã. */
+    return x.dist <= RADIUS_KM;
   }).sort(function(x,y){
     if (x.fire !== y.fire) return x.fire ? -1 : 1;
     return x.dist - y.dist;
@@ -3250,10 +3258,21 @@ function fotoGenerica(tipo){
 
 /* ---------- foto genérica por tipo, persistida (substituta do poster IA) ----------
    Enquanto POSTER_IA_ATIVO é false (ver acima), este é o mecanismo que
-   alimenta o espaço do poster e a Coleção: a mesma foto genérica que já
-   existia como recurso (fotoGenerica, acima), agora guardada entre
-   sessões — uma vez por tipo, como o poster fazia — para a Coleção
-   continuar a crescer sem depender da IA. */
+   alimenta o espaço do poster e a Coleção: uma fotografia real DO
+   MODELO — não necessariamente da aeronave concreta vista no popup —
+   guardada entre sessões, uma vez por tipo. Duas fontes, por ordem:
+   1) Wikipedia (buscarFotoWikipedia, abaixo): imagem do artigo do
+      modelo — normalmente a fotografia de referência/catálogo que a
+      própria Wikipedia usa na infobox, não presa a uma matrícula
+      específica. É o que foi pedido, mas com uma ressalva honesta: não
+      há garantia de que seja sempre uma foto publicitária oficial do
+      fabricante — é a foto que a comunidade da Wikipedia escolheu para
+      representar o modelo, licenciada livremente (Commons), o que é
+      diferente de "catálogo original" mas é o mais próximo disso que
+      se consegue obter de forma automática e legal.
+   2) Recurso: a primeira fotografia real de uma aeronave concreta
+      deste tipo, já vista por este painel via Planespotters (mecanismo
+      anterior) — só entra se a Wikipedia não tiver nada para o modelo. */
 function fotoTipoKey(tipo){ return "sitrep_fototipo_" + tipo; }
 function lerIndiceFotoTipo(){
   try { return JSON.parse(localStorage.getItem("sitrep_fototipo_index") || "[]"); }
@@ -3274,13 +3293,25 @@ function lerFotoTipoGuardada(tipo){
 }
 /* Só grava a PRIMEIRA foto vista de cada tipo — igual ao "uma vez por
    tipo" que já regia o poster. Não sobrescreve por engano se já houver
-   uma guardada (ex.: sessão anterior). */
-function guardarFotoTipo(tipo, src, link, photographer){
+   uma guardada (ex.: sessão anterior). "fonte" distingue "wikipedia" de
+   "planespotters" só para a legenda mostrar o crédito certo — nunca
+   afeta a lógica de cache. */
+function guardarFotoTipo(tipo, src, link, credito, fonte){
   try {
     if (localStorage.getItem(fotoTipoKey(tipo)) !== null) return;
-    localStorage.setItem(fotoTipoKey(tipo), JSON.stringify({ src:src, link:link||"", photographer:photographer||"desconhecido" }));
+    localStorage.setItem(fotoTipoKey(tipo), JSON.stringify({
+      src:src, link:link||"", credito:credito||"", fonte:fonte||"planespotters"
+    }));
     registarFotoTipoNaColecao(tipo);
   } catch(e){}
+}
+function fotoTipoHtml(g){
+  var credLinha = g.fonte === "wikipedia"
+    ? "Wikipedia" + (g.credito ? " · "+esc(g.credito) : "")
+    : "© "+esc(g.credito || "desconhecido")+" · Planespotters";
+  return '<a href="'+esc(g.link||"#")+'" target="_blank" rel="noopener">'+
+    '<img class="pp-img" src="'+esc(g.src)+'" alt="Fotografia do modelo" loading="lazy"></a>'+
+    '<div class="pp-cred">'+credLinha+'</div>';
 }
 /* Semeia photoTipoCache a partir do que já ficou guardado em sessões
    anteriores — sem isto, um tipo já colecionado voltava a mostrar "sem
@@ -3289,37 +3320,77 @@ function guardarFotoTipo(tipo, src, link, photographer){
 (function(){
   lerIndiceFotoTipo().forEach(function(tipo){
     var g = lerFotoTipoGuardada(tipo);
-    if (g && g.src && photoTipoCache[tipo] === undefined){
-      photoTipoCache[tipo] = '<a href="'+esc(g.link||"#")+'" target="_blank" rel="noopener">'+
-        '<img class="pp-img" src="'+esc(g.src)+'" alt="Fotografia da aeronave" loading="lazy"></a>'+
-        '<div class="pp-cred">© '+esc(g.photographer||"desconhecido")+' · Planespotters</div>';
-    }
+    if (g && g.src && photoTipoCache[tipo] === undefined) photoTipoCache[tipo] = fotoTipoHtml(g);
   });
 })();
+
+/* Wikipedia/MediaWiki API, anónimo, sem chave: CORS ligado explicitamente
+   por request com "origin=*" (documentado em mediawiki.org/wiki/API:
+   Cross-site_requests — "unauthenticated CORS requests may be made from
+   any origin by setting the origin request parameter to '*'"), por isso
+   chama-se direto do browser, sem passar pelo Worker. "generator=search"
+   junta a procura e o pedido da imagem num único pedido — resolve o
+   artigo mais relevante para o nome do modelo e já vem com a miniatura,
+   sem duas viagens de rede. O sufixo " aircraft" na pesquisa é só para
+   desambiguar nomes que colidem com outra coisa qualquer (ex.: um nome
+   de código também usado por um produto, uma marca). */
+var WIKI_API = "https://en.wikipedia.org/w/api.php";
+var wikiFotoPromise = {}; // chave: tipo → promessa em curso, evita pedidos duplicados
+function buscarFotoWikipedia(tipo){
+  if (!tipo) return Promise.resolve(null);
+  if (wikiFotoPromise[tipo]) return wikiFotoPromise[tipo];
+  var u = WIKI_API + "?action=query&generator=search&gsrsearch=" +
+          encodeURIComponent(tipo + " aircraft") + "&gsrlimit=1&gsrnamespace=0" +
+          "&prop=pageimages%7Cinfo&inprop=url&pithumbsize=640&format=json&origin=*";
+  var p = fetchJSON(u, 9000).then(function(j){
+    var pages = j && j.query && j.query.pages;
+    if (!pages) return null;
+    var chaves = Object.keys(pages);
+    if (!chaves.length) return null;
+    var pg = pages[chaves[0]];
+    if (!pg || !pg.thumbnail || !pg.thumbnail.source) return null;
+    return { src:pg.thumbnail.source, link:pg.fullurl || ("https://en.wikipedia.org/?curid="+pg.pageid), titulo:pg.title };
+  }).catch(function(){ return null; });
+  wikiFotoPromise[tipo] = p;
+  return p;
+}
+
 /* Etiqueta visível no espaço do poster (não só o hover que fotoGenerica
    usa no espaço da foto individual) — mostra sempre o tipo, para ficar
    claro de imediato que esta imagem não foi gerada, é uma fotografia
-   real doutra aeronave. */
+   real do modelo. */
 function loadFotoGenericaTipo(box, tipo, tipoIcao){
   if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
-  function mostrar(){
+  function mostrarCache(){
     var html = photoTipoCache[tipo];
-    box.innerHTML = html
-      ? '<div class="pp-gen-note">fotografia real do modelo · '+esc(tipo)+' — não é esta aeronave</div>' + html
-      : '<div class="pp-poster-wait">ainda sem fotografia deste modelo na coleção</div>';
+    if (!html) return false;
+    box.innerHTML = '<div class="pp-gen-note">fotografia do modelo · '+esc(tipo)+'</div>' + html;
+    return true;
   }
-  if (photoTipoCache[tipo] !== undefined){ mostrar(); return; }
-  /* A procura da foto DESTA aeronave (loadPhoto, chamado antes disto em
-     onPopupOpen) pode resolver-se a favor do tipo mesmo que esta
-     aeronave em concreto não tenha foto própria — só se sabe depois de
-     essa procura terminar, por isso espera-se por ela na primeira vez
-     que se vê este tipo, tal como o poster já fazia com photoTipoRefPromise. */
-  if (tipoIcao && photoTipoRefPromise[tipoIcao]){
-    box.innerHTML = '<div class="pp-poster-wait">a procurar fotografia do modelo…</div>';
-    photoTipoRefPromise[tipoIcao].then(mostrar);
-  } else {
-    mostrar();
-  }
+  if (mostrarCache()) return;
+  box.innerHTML = '<div class="pp-poster-wait">a procurar fotografia do modelo…</div>';
+  buscarFotoWikipedia(tipo).then(function(r){
+    if (r && r.src){
+      var g = { src:r.src, link:r.link, credito:r.titulo, fonte:"wikipedia" };
+      photoTipoCache[tipo] = fotoTipoHtml(g);
+      guardarFotoTipo(tipo, g.src, g.link, g.credito, "wikipedia");
+      if (box.isConnected !== false) mostrarCache();
+      return;
+    }
+    /* Sem nada na Wikipedia para este modelo — recurso: a foto de uma
+       aeronave concreta deste tipo, se e quando a procura da aeronave
+       deste popup (loadPhoto, chamado antes disto em onPopupOpen) a
+       encontrar. Só se sabe depois de essa procura terminar. */
+    if (tipoIcao && photoTipoRefPromise[tipoIcao]){
+      photoTipoRefPromise[tipoIcao].then(function(){
+        if (!mostrarCache()){
+          box.innerHTML = '<div class="pp-poster-wait">ainda sem fotografia deste modelo na coleção</div>';
+        }
+      });
+    } else if (!mostrarCache()){
+      box.innerHTML = '<div class="pp-poster-wait">ainda sem fotografia deste modelo na coleção</div>';
+    }
+  });
 }
 
 function loadPhoto(box, hex, reg, tipo, tipoIcao){
@@ -3352,7 +3423,7 @@ function loadPhoto(box, hex, reg, tipo, tipoIcao){
     photoCache[key] = html; box.innerHTML = html;
     if (tipo && tipo!=="—" && tipo!=="desconhecido" && photoTipoCache[tipo]===undefined){
       photoTipoCache[tipo] = html;
-      guardarFotoTipo(tipo, src, ph.link, ph.photographer);
+      guardarFotoTipo(tipo, src, ph.link, ph.photographer, "planespotters");
     }
   }).catch(function(){
     if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined) photoTipoRefCache[tipoIcao] = "";
@@ -3674,7 +3745,8 @@ function renderColecao(){
     }
     var g = lerFotoTipoGuardada(tipo);
     if (!g || !g.src) return; /* índice e imagem dessincronizados — não mostra buraco */
-    var titF = esc(tipo+" — fotografia real · © "+(g.photographer||"desconhecido"));
+    var credF = g.fonte==="wikipedia" ? "Wikipedia" : "© "+(g.credito||"desconhecido")+" · Planespotters";
+    var titF = esc(tipo+" — "+credF);
     html += '<div class="colCard" id="colCard-'+esc(tipo)+'"><img src="'+esc(g.src)+'" alt="Fotografia — '+esc(tipo)+'" title="'+titF+'">'+
             '<div class="colLbl">'+esc(tipo)+'</div></div>';
   });
@@ -3794,7 +3866,10 @@ function acPopup(x){
     '<b>'+esc(id)+'</b><br><span class="mono">'+esc(x.label)+(a.r?" · "+esc(a.r):"")+'</span><br>'+
     '<span class="mono">'+alt+' · '+ktKmh(num(a.gs))+' km/h · rumo '+
       Math.round(num(a.track))+'°</span><br>'+
-    '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s</span><br>'+
+    '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s · '+
+      '<a href="https://www.google.com/maps?q='+a.lat.toFixed(5)+','+a.lon.toFixed(5)+
+      '" target="_blank" rel="noopener" title="abrir esta coordenada exata num mapa externo, para confirmar independentemente">'+
+      a.lat.toFixed(4)+', '+a.lon.toFixed(4)+' ↗</a></span><br>'+
     '<span class="mono">'+(x.fire ? (x.reason==="tipo"
       ? "Tipo conhecido de combate" : "Perfil de voo compatível") : "Tráfego geral")+'</span>'+
     (x.mil ? '<br><span class="mono pp-mil">◆ aeronave militar/estatal '+
