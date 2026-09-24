@@ -361,6 +361,9 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 .pp-poster-lbl{font-size:9.5px;color:var(--ink-mute);margin-top:3px;
                font-style:italic;font-family:var(--f-mono)}
 .pp-poster-tmp{color:var(--orange, #c77)}
+.pp-poster-modo{padding:1px 5px;border:1px solid var(--rule-hi);border-radius:3px;
+  color:var(--ink-mid);font-style:normal;white-space:nowrap}
+.pp-poster-modo-aviso{color:var(--amber);border-color:var(--amber)}
 .pp-poster-regen{margin-left:6px;font-size:9.5px;color:var(--ink-mute);background:none;
   border:1px solid var(--rule-hi);border-radius:3px;padding:1px 5px;cursor:pointer;
   font-family:inherit;line-height:1.5}
@@ -916,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.57";
+var VERSAO = "2026-09-24.59";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -3256,15 +3259,23 @@ function hojeUTC(){ return new Date().toISOString().slice(0, 10); }
    (quota do modelo principal esgotada nesse dia) — loadPoster tenta
    substituí-lo automaticamente da próxima vez que o tipo for aberto
    num dia diferente. */
+/* Etiqueta do modo, visível sempre — não só no title ao passar o rato.
+   Pedido explícito: saber de onde veio cada poster sem precisar de
+   pairar o rato (nem sempre óbvio nem acessível em ecrã tátil). Cor
+   própria por modo para se distinguir de relance numa lista de vários
+   pósteres, sem precisar de ler o texto todo. */
+var POSTER_MODO_INFO = {
+  "foto":            { rotulo:"foto de referência", tit:"gerado a partir de fotografia real (image-to-image)", cls:"" },
+  "texto":           { rotulo:"só texto",            tit:"gerado só por texto (sem fotografia disponível)",    cls:"" },
+  "texto-fallback":  { rotulo:"só texto · foto falhou", tit:"tentativa com fotografia falhou — gerado só por texto", cls:"pp-poster-modo-aviso" },
+  "secundario":      { rotulo:"temporário",           tit:"modelo temporário — modelo principal sem quota; será substituído automaticamente", cls:"pp-poster-tmp" }
+};
 function posterHtml(tipo, src, modo){
-  var tit = modo === "foto" ? "gerado a partir de fotografia real (image-to-image)"
-          : modo === "texto-fallback" ? "tentativa com fotografia falhou — gerado só por texto"
-          : modo === "texto" ? "gerado só por texto (sem fotografia disponível)"
-          : modo === "secundario" ? "temporário — modelo principal sem quota; será substituído automaticamente"
-          : "";
+  var info = POSTER_MODO_INFO[modo];
+  var tit = info ? info.tit : "";
+  var tag = info ? ' <span class="pp-poster-modo '+info.cls+'">'+esc(info.rotulo)+'</span>' : "";
   return '<img src="'+esc(src)+'" alt="Poster vintage — '+esc(tipo)+'"'+(tit?' title="'+esc(tit)+'"':'')+'>'+
-         '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+
-         (modo==="secundario"?' <span class="pp-poster-tmp">(temporário)</span>':'')+
+         '<div class="pp-poster-lbl">poster vintage · gerado por IA · '+esc(tipo)+tag+
          ' <button type="button" class="pp-poster-regen" title="pedir uma nova geração (o modelo não repete a mesma imagem)">↻ tentar outra</button></div>';
 }
 /* O modelo de imagem já inventou datas ("2027 - 2916") e uma matrícula
@@ -3488,10 +3499,20 @@ function renderColecao(){
   }
   var html = "";
   idx.forEach(function(tipo){
-    var src = null;
-    try { src = localStorage.getItem(posterKey(tipo)); } catch(e){}
+    var src = null, modo = null;
+    try {
+      src = localStorage.getItem(posterKey(tipo));
+      modo = localStorage.getItem(posterModoKey(tipo));
+    } catch(e){}
     if (!src) return; /* índice e imagem dessincronizados — não mostra buraco */
-    html += '<div class="colCard" id="colCard-'+esc(tipo)+'"><img src="'+esc(src)+'" alt="Poster — '+esc(tipo)+'">'+
+    /* Aqui, ao contrário do popup individual (ver posterHtml), a etiqueta
+       fica só no title: uma grelha com dezenas de cartões pequenos não
+       tem espaço para um selo visível em cada um sem ficar poluída —
+       o hover chega para quem quiser saber a origem de um poster em
+       concreto, sem impor o detalhe a quem só está a percorrer a coleção. */
+    var info = POSTER_MODO_INFO[modo];
+    var tit = esc(info ? (tipo+" — "+info.tit) : tipo);
+    html += '<div class="colCard" id="colCard-'+esc(tipo)+'"><img src="'+esc(src)+'" alt="Poster — '+esc(tipo)+'" title="'+tit+'">'+
             '<div class="colLbl">'+esc(tipo)+'</div></div>';
   });
   grid.innerHTML = html || '<div class="colEmpty">Ainda sem pósteres guardados.</div>';
