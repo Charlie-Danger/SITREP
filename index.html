@@ -312,7 +312,14 @@ body.dia.osmfall #mapR .leaflet-tile-pane{filter:grayscale(1) brightness(1.04) c
 #mapS.cinza .sat-tiles{filter:grayscale(1) brightness(.92) contrast(1.12)}
 
 /* ---------- aeronaves, comum às duas vistas ---------- */
-.ac-sym{position:relative;width:22px;height:22px;overflow:visible}
+/* NUNCA "position:relative" aqui: este elemento é o mesmo <div> a que o
+   Leaflet já aplica "leaflet-marker-icon" (position:absolute, para o
+   transform:translate3d que o ancora ao pixel certo do mapa). Como as
+   duas classes têm a mesma especificidade e o leaflet.min.css carrega
+   antes deste <style>, um "position:relative" aqui ganhava a cascata e
+   tirava o marcador da âncora — caía no fluxo normal do documento,
+   produzindo exatamente o efeito "em coluna" que se via no ecrã. */
+.ac-sym{width:22px;height:22px;overflow:visible}
 .ac-sym svg{display:block;position:absolute;left:0;top:0;
             filter:drop-shadow(0 0 4px rgba(0,0,0,.95));will-change:transform}
 body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
@@ -919,7 +926,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.81";
+var VERSAO = "2026-09-24.82";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
