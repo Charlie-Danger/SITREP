@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.60";
+var VERSAO = "2026-09-24.61";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -959,6 +959,15 @@ var GEOID_N        = 54;
 var DROP_AGL_MAX   = 180;
 var DROP_PULLUP    = 90;
 var NEAR_FIRE_KM   = 8;
+
+/* 2026-09-24: geração de pósteres por IA suspensa a pedido — fica
+   implementada tal como estava (loadPoster mais abaixo, gerarPoster* no
+   worker.js), só desligada por este interruptor. Enquanto false, o
+   espaço do poster no popup e na Coleção mostra em vez disso uma
+   fotografia REAL de outra aeronave do mesmo modelo, já vista por este
+   painel — nunca uma imagem inventada (ver loadFotoGenericaTipo). Pôr a
+   true volta a ligar a geração por IA sem mudar mais nada. */
+var POSTER_IA_ATIVO = false;
 
 /* Lacunas na amostragem. O detetor de descargas comparava pontos
    adjacentes no array assumindo que eram adjacentes no tempo. Com
@@ -3238,6 +3247,81 @@ function fotoGenerica(tipo){
   if (!html) return "";
   return '<div class="pp-gen-note">foto genérica do modelo — não é esta aeronave</div>' + html;
 }
+
+/* ---------- foto genérica por tipo, persistida (substituta do poster IA) ----------
+   Enquanto POSTER_IA_ATIVO é false (ver acima), este é o mecanismo que
+   alimenta o espaço do poster e a Coleção: a mesma foto genérica que já
+   existia como recurso (fotoGenerica, acima), agora guardada entre
+   sessões — uma vez por tipo, como o poster fazia — para a Coleção
+   continuar a crescer sem depender da IA. */
+function fotoTipoKey(tipo){ return "sitrep_fototipo_" + tipo; }
+function lerIndiceFotoTipo(){
+  try { return JSON.parse(localStorage.getItem("sitrep_fototipo_index") || "[]"); }
+  catch(e){ return []; }
+}
+function registarFotoTipoNaColecao(tipo){
+  var idx = lerIndiceFotoTipo();
+  if (idx.indexOf(tipo) < 0){
+    idx.push(tipo);
+    try { localStorage.setItem("sitrep_fototipo_index", JSON.stringify(idx)); } catch(e){}
+  }
+}
+function lerFotoTipoGuardada(tipo){
+  try {
+    var raw = localStorage.getItem(fotoTipoKey(tipo));
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){ return null; }
+}
+/* Só grava a PRIMEIRA foto vista de cada tipo — igual ao "uma vez por
+   tipo" que já regia o poster. Não sobrescreve por engano se já houver
+   uma guardada (ex.: sessão anterior). */
+function guardarFotoTipo(tipo, src, link, photographer){
+  try {
+    if (localStorage.getItem(fotoTipoKey(tipo)) !== null) return;
+    localStorage.setItem(fotoTipoKey(tipo), JSON.stringify({ src:src, link:link||"", photographer:photographer||"desconhecido" }));
+    registarFotoTipoNaColecao(tipo);
+  } catch(e){}
+}
+/* Semeia photoTipoCache a partir do que já ficou guardado em sessões
+   anteriores — sem isto, um tipo já colecionado voltava a mostrar "sem
+   fotografia ainda" a cada recarregar da página, até se voltar a ver ao
+   vivo uma aeronave real desse tipo com foto disponível. */
+(function(){
+  lerIndiceFotoTipo().forEach(function(tipo){
+    var g = lerFotoTipoGuardada(tipo);
+    if (g && g.src && photoTipoCache[tipo] === undefined){
+      photoTipoCache[tipo] = '<a href="'+esc(g.link||"#")+'" target="_blank" rel="noopener">'+
+        '<img class="pp-img" src="'+esc(g.src)+'" alt="Fotografia da aeronave" loading="lazy"></a>'+
+        '<div class="pp-cred">© '+esc(g.photographer||"desconhecido")+' · Planespotters</div>';
+    }
+  });
+})();
+/* Etiqueta visível no espaço do poster (não só o hover que fotoGenerica
+   usa no espaço da foto individual) — mostra sempre o tipo, para ficar
+   claro de imediato que esta imagem não foi gerada, é uma fotografia
+   real doutra aeronave. */
+function loadFotoGenericaTipo(box, tipo, tipoIcao){
+  if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
+  function mostrar(){
+    var html = photoTipoCache[tipo];
+    box.innerHTML = html
+      ? '<div class="pp-gen-note">fotografia real do modelo · '+esc(tipo)+' — não é esta aeronave</div>' + html
+      : '<div class="pp-poster-wait">ainda sem fotografia deste modelo na coleção</div>';
+  }
+  if (photoTipoCache[tipo] !== undefined){ mostrar(); return; }
+  /* A procura da foto DESTA aeronave (loadPhoto, chamado antes disto em
+     onPopupOpen) pode resolver-se a favor do tipo mesmo que esta
+     aeronave em concreto não tenha foto própria — só se sabe depois de
+     essa procura terminar, por isso espera-se por ela na primeira vez
+     que se vê este tipo, tal como o poster já fazia com photoTipoRefPromise. */
+  if (tipoIcao && photoTipoRefPromise[tipoIcao]){
+    box.innerHTML = '<div class="pp-poster-wait">a procurar fotografia do modelo…</div>';
+    photoTipoRefPromise[tipoIcao].then(mostrar);
+  } else {
+    mostrar();
+  }
+}
+
 function loadPhoto(box, hex, reg, tipo, tipoIcao){
   var key = (hex||reg||"").toUpperCase();
   if (!key) return;
@@ -3268,6 +3352,7 @@ function loadPhoto(box, hex, reg, tipo, tipoIcao){
     photoCache[key] = html; box.innerHTML = html;
     if (tipo && tipo!=="—" && tipo!=="desconhecido" && photoTipoCache[tipo]===undefined){
       photoTipoCache[tipo] = html;
+      guardarFotoTipo(tipo, src, ph.link, ph.photographer);
     }
   }).catch(function(){
     if (tipoIcao && photoTipoRefCache[tipoIcao] === undefined) photoTipoRefCache[tipoIcao] = "";
@@ -3393,6 +3478,10 @@ function registarNaColecao(tipo){
   }
 }
 function loadPoster(box, tipo, descricao, tipoIcao){
+  /* Geração por IA suspensa (ver POSTER_IA_ATIVO, no topo do ficheiro) —
+     todo o resto desta função fica implementado, só não é chamado
+     enquanto o interruptor estiver false. */
+  if (!POSTER_IA_ATIVO) return loadFotoGenericaTipo(box, tipo, tipoIcao);
   if (!tipo || tipo==="—" || tipo==="desconhecido"){ box.innerHTML=""; return; }
   /* ligarBotaoRegenerar: o botão "↻ tentar outra" só existe quando
      posterHtml() desenhou mesmo uma imagem (nunca nos estados de
@@ -3535,35 +3624,51 @@ function onPopupOpen(e){
 mapS.on("popupopen", onPopupOpen);
 
 /* ---------- Spotter Collection ---------- */
+/* União das duas fontes que já alimentaram a Coleção ao longo do tempo:
+   pósteres de IA de quando POSTER_IA_ATIVO esteve a true (ficam visíveis
+   mesmo depois de desligado — não se apaga histórico sozinho), e fotos
+   genéricas por tipo, o mecanismo atual. Por tipo, o poster tem
+   prioridade sobre a foto se por acaso existirem os dois (ex.: IA ligada
+   de novo mais tarde, tipo que entretanto já tinha foto genérica). */
 function renderColecao(){
-  var idx = lerIndiceColecao().slice().sort(function(a,b){ return a.localeCompare(b, "pt"); });
+  var idxPoster = lerIndiceColecao();
+  var idxFoto = lerIndiceFotoTipo();
+  var idx = idxPoster.concat(idxFoto.filter(function(t){ return idxPoster.indexOf(t) === -1; }))
+    .sort(function(a,b){ return a.localeCompare(b, "pt"); });
   var grid = $("colGrid");
   $("colContagem").textContent = idx.length + (idx.length===1 ? " tipo colecionado" : " tipos colecionados");
   if (!idx.length){
-    grid.innerHTML = '<div class="colEmpty">Ainda sem pósteres. Cada vez que abrir o popup de uma '+
-      'aeronave de um tipo novo, e o Worker próprio tiver o Workers AI ativo, o poster gerado '+
-      'fica aqui — para sempre, uma vez por modelo (a não ser que peças "↻ tentar outra").</div>';
+    grid.innerHTML = '<div class="colEmpty">Ainda sem nada colecionado. Cada vez que se vir uma aeronave '+
+      'de um tipo novo com fotografia disponível'+(POSTER_IA_ATIVO?', ou se gerar o respetivo poster,':'')+
+      ' fica aqui — para sempre, uma vez por modelo.</div>';
     return;
   }
   var html = "";
   idx.forEach(function(tipo){
-    var src = null, modo = null;
+    var srcPoster = null, modo = null;
     try {
-      src = localStorage.getItem(posterKey(tipo));
+      srcPoster = localStorage.getItem(posterKey(tipo));
       modo = localStorage.getItem(posterModoKey(tipo));
     } catch(e){}
-    if (!src) return; /* índice e imagem dessincronizados — não mostra buraco */
-    /* Aqui, ao contrário do popup individual (ver posterHtml), a etiqueta
-       fica só no title: uma grelha com dezenas de cartões pequenos não
-       tem espaço para um selo visível em cada um sem ficar poluída —
-       o hover chega para quem quiser saber a origem de um poster em
-       concreto, sem impor o detalhe a quem só está a percorrer a coleção. */
-    var info = POSTER_MODO_INFO[modo];
-    var tit = esc(info ? (tipo+" — "+info.tit) : tipo);
-    html += '<div class="colCard" id="colCard-'+esc(tipo)+'"><img src="'+esc(src)+'" alt="Poster — '+esc(tipo)+'" title="'+tit+'">'+
+    if (srcPoster){
+      /* Aqui, ao contrário do popup individual (ver posterHtml), a etiqueta
+         fica só no title: uma grelha com dezenas de cartões pequenos não
+         tem espaço para um selo visível em cada um sem ficar poluída —
+         o hover chega para quem quiser saber a origem de um poster em
+         concreto, sem impor o detalhe a quem só está a percorrer a coleção. */
+      var info = POSTER_MODO_INFO[modo];
+      var tit = esc(info ? (tipo+" — "+info.tit) : tipo);
+      html += '<div class="colCard" id="colCard-'+esc(tipo)+'"><img src="'+esc(srcPoster)+'" alt="Poster — '+esc(tipo)+'" title="'+tit+'">'+
+              '<div class="colLbl">'+esc(tipo)+'</div></div>';
+      return;
+    }
+    var g = lerFotoTipoGuardada(tipo);
+    if (!g || !g.src) return; /* índice e imagem dessincronizados — não mostra buraco */
+    var titF = esc(tipo+" — fotografia real · © "+(g.photographer||"desconhecido"));
+    html += '<div class="colCard" id="colCard-'+esc(tipo)+'"><img src="'+esc(g.src)+'" alt="Fotografia — '+esc(tipo)+'" title="'+titF+'">'+
             '<div class="colLbl">'+esc(tipo)+'</div></div>';
   });
-  grid.innerHTML = html || '<div class="colEmpty">Ainda sem pósteres guardados.</div>';
+  grid.innerHTML = html || '<div class="colEmpty">Ainda sem nada colecionado.</div>';
 }
 /* "há Xd"/"há Xh"/durS(...) — durS() sozinho fica feio para um registo
    que pode ter dias (mostraria "2880m"); só usado aqui. */
@@ -3618,18 +3723,24 @@ function fecharColecao(){ $("colOverlay").hidden = true; }
    corrigir só UM poster específico há agora o botão "↻ tentar outra"
    em cada um — isto aqui é só para limpar tudo de uma vez. */
 function limparColecao(){
-  var idx = lerIndiceColecao();
-  if (!idx.length){ return; }
-  if (!confirm("Apagar os " + idx.length + " pósteres guardados? Não é reversível — a próxima vez que abrires cada tipo, gera-se de novo.")) return;
+  var idxPoster = lerIndiceColecao();
+  var idxFoto = lerIndiceFotoTipo();
+  var total = idxPoster.length + idxFoto.length;
+  if (!total){ return; }
+  if (!confirm("Apagar os " + total + " item(ns) guardados (pósteres e fotografias)? Não é reversível — "+
+    "a próxima vez que se vir cada tipo, recomeça do zero.")) return;
   try {
-    idx.forEach(function(tipo){
+    idxPoster.forEach(function(tipo){
       localStorage.removeItem(posterKey(tipo));
       localStorage.removeItem(posterModoKey(tipo));
       localStorage.removeItem(posterDataKey(tipo));
     });
     localStorage.removeItem("sitrep_poster3_index");
+    idxFoto.forEach(function(tipo){ localStorage.removeItem(fotoTipoKey(tipo)); });
+    localStorage.removeItem("sitrep_fototipo_index");
   } catch(e){}
   posterCache = {};
+  photoTipoCache = {};
   renderColecao();
 }
 $("btnColecao").addEventListener("click", abrirColecao);
