@@ -916,7 +916,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.52";
+var VERSAO = "2026-09-24.53";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -941,6 +941,16 @@ var DR_MAX_S       = 45;
 var DR_RENDER_DELAY_MS = 9000;
 var DR_COURSE_HOLD_GS  = 5;   // abaixo disto o rumo é ruído — mantém-se o último
 var DR_SLEW_MAX_DPS    = 25;  // viragem máxima do ícone, graus por segundo
+/* P3: banda-morta de rotação — abaixo disto, uma mudança de rumo é ruído de
+   amostragem, não viragem real, e nem se toca no ícone. Valor (0.5°) e a
+   própria ideia vêm de stabilizeScreenRotation em iconOrientation.js do GEV
+   (github.com/bilawalsidhu/gods-eye-view, MIT) — aí serve para não sacudir
+   um billboard 3D por ruído de projeção; aqui a fonte do ruído é outra
+   (jitter de heading reportado pela fonte ADS-B, não projeção de câmara),
+   mas o problema e a cura são exatamente os mesmos: sem isto, um rumo
+   estável mas com ±1° de ruído por leitura fazia o ícone "tremer"
+   continuamente em vez de ficar quieto. */
+var DR_DEADBAND_DEG    = 0.5;
 var TRACK_MAX_MIN  = 40;
 var GEOID_N        = 54;
 var DROP_AGL_MAX   = 180;
@@ -2980,7 +2990,11 @@ function animate(){
     var prevTrk = isFinite(m.dispTrk) ? m.dispTrk : p.trk;
     var maxStep = DR_SLEW_MAX_DPS * 0.5; // tick de animate() a cada 500 ms
     var diff = ((p.trk-prevTrk+540)%360)-180;
-    m.dispTrk = (Math.abs(diff) <= maxStep ? p.trk : prevTrk + (diff<0?-1:1)*maxStep + 360) % 360;
+    if (Math.abs(diff) < DR_DEADBAND_DEG){
+      m.dispTrk = prevTrk; // ruído sub-grau: mantém exatamente o valor anterior
+    } else {
+      m.dispTrk = (Math.abs(diff) <= maxStep ? p.trk : prevTrk + (diff<0?-1:1)*maxStep + 360) % 360;
+    }
 
     m.mk.setLatLng([p.lat, p.lon]);
     var trkInt = Math.round(m.dispTrk);
