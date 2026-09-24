@@ -916,7 +916,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.53";
+var VERSAO = "2026-09-24.54";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1198,7 +1198,13 @@ var POSTER_FORMAS = {
   R44:"a light helicopter with a single main rotor and skid landing gear, no fixed wings",
   R66:"a light helicopter with a single main rotor and skid landing gear, no fixed wings",
   EC20:"a light helicopter with a single main rotor and skid landing gear, no fixed wings",
-  H120:"a light helicopter with a single main rotor and skid landing gear, no fixed wings"
+  H120:"a light helicopter with a single main rotor and skid landing gear, no fixed wings",
+  /* Confirmado em en.wikipedia.org/wiki/Tecnam_Astore e tecnam.com/aircraft/astore/,
+     2026-09-24: "a single engine in tractor configuration", "cantilever
+     low-wing", "fixed tricycle landing gear with wheel pants". Adicionado
+     depois de um teste real mostrar um bimotor para este tipo — não
+     tinha pista nenhuma de forma em nenhuma das duas tabelas. */
+  ASTO:"a single-engine low-wing light aircraft with a cantilever wing, fixed tricycle landing gear and wheel pants — one engine only, not a twin"
 };
 /* Descrição a enviar ao Worker — nome + forma, quando houver. O nome
    sozinho (posterNome) continua a ser o que aparece escrito e o que
