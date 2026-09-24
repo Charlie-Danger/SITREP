@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.77";
+var VERSAO = "2026-09-24.78";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2946,6 +2946,15 @@ function sweep(store, group){
   });
 }
 
+/* Sem extrapolação de posição: o marcador fica sempre na última posição
+   real recebida (a mesma que já é usada no cartão/linha da lista), só
+   com a opacidade a desvanecer com a idade do fix. A extrapolação por
+   rumo/velocidade foi removida a pedido explícito — perto do solo
+   (descolagem/aterragem) o rumo e a velocidade reportados variam muito
+   de fix para fix, e projetar a posição nessa altura podia empurrar o
+   ícone para longe do sítio real (ex.: aeronave a aterrar no Porto a
+   aparecer sobre Aveiro só porque um "track" instável foi usado para
+   avançar a posição). */
 function animate(){
   if (document.hidden) return;
   var store = view === "radar" ? marksR : marksS;
@@ -2954,13 +2963,6 @@ function animate(){
     var m = store[k];
     var dt = (now-m.t0)/1000; if (dt<0) dt=0;
     var op = dt <= DR_MAX_S*0.5 ? 1 : Math.max(0.2, 1-(dt-DR_MAX_S*0.5)/(DR_MAX_S*1.5));
-    if (dt > DR_MAX_S || !m.gs || m.gs < 5){
-      if (Math.abs((m.lastOp||1)-op) > 0.03){ setOp(m,op); m.lastOp=op; }
-      return;
-    }
-    var d = m.gs*0.514444*dt, r = m.trk*Math.PI/180;
-    m.mk.setLatLng([ m.lat + (d*Math.cos(r))/111320,
-                     m.lon + (d*Math.sin(r))/(111320*Math.cos(m.lat*Math.PI/180)) ]);
     if (Math.abs((m.lastOp||1)-op) > 0.03){ setOp(m,op); m.lastOp=op; }
   });
 }
