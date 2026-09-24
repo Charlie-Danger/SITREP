@@ -916,7 +916,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.56";
+var VERSAO = "2026-09-24.57";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1689,6 +1689,7 @@ function loadIncidents(){
     DIAG.incidents = { ok:true, via:(fontes.join(" + ")||"—")+(parcial?" (parcial)":""), msg:note };
     renderIncidents(); renderRoads(); renderDiag();
     if (radarReady) drawFires();
+    recomputeFirms();
     /* o vento por incêndio só depois de a lista estar completa */
     if (!parcial) loadFireWinds();
   }
@@ -1811,6 +1812,142 @@ function renderRisco(){
   }
 
   el.innerHTML = html;
+}
+
+/* ============================================================
+   FOCOS DE CALOR POR SATÉLITE (FIRMS/VIIRS) — CRUZAMENTO COM
+   OCORRÊNCIAS JÁ REPORTADAS (P5)
+   ------------------------------------------------------------
+   As camadas VIIRS que já existem no mapa acima (lHot, lHotAll — EFFIS/
+   Copernicus, WMS) são só imagem: mostram onde há fumo, mas não dão
+   pontos individuais para comparar com a lista de ocorrências da
+   ANEPC/fogos.pt. Isto pede à FIRMS (NASA) os pontos reais e assinala
+   os que NÃO têm nenhuma ocorrência reportada perto — pode ser deteção
+   precoce, pode ser só atraso normal de reporte; o painel não distingue
+   as duas coisas, só mostra a discrepância para uma pessoa decidir.
+   Passa sempre pelo Worker próprio (nunca pelos proxies públicos): a
+   FIRMS exige uma chave, e essa chave vive só no Worker como Secret
+   (ver worker.js) — nunca no browser. Sem Worker próprio configurado,
+   esta camada fica silenciosamente indisponível, tal como o poster
+   fica sem o binding AI.
+   ============================================================ */
+var FIRMS_MS = 12 * 60 * 1000;    /* passagem do satélite não é contínua — pedir mais depressa não traz nada de novo */
+var FIRMS_MARGIN_KM = 30;         /* mesma margem de "perto" usada em nearbyFires() */
+var FIRMS_UNMATCHED_KM = 3;       /* acima disto ao incêndio reportado mais próximo, conta como "sem ocorrência associada" */
+var firmsPontosRaw = [];          /* todos os pontos devolvidos pela FIRMS na última chamada, por cruzar */
+var firmsPontos = [];             /* só os focos SEM ocorrência associada — [{lat,lon,conf,data,hora,frp,sat,perto}] */
+var gFirmsS = null;               /* criada no bloco do mapa SITREP, mais abaixo */
+var DIAG_FIRMS = { ok:null, via:"—", msg:"" };
+
+/* As ocorrências (incidents) chegam num ciclo próprio (INC_MS, 60s),
+   mais depressa que a FIRMS (FIRMS_MS, 12min) — sem isto, um foco só
+   deixaria de aparecer como "sem ocorrência" na próxima vez que a FIRMS
+   fosse pedida, até 12 minutos depois de a ocorrência já ter sido
+   reportada. Recalcula-se o cruzamento com o que já se tem sempre que
+   a lista de ocorrências muda, sem gastar mais nenhum pedido à FIRMS. */
+function recomputeFirms(){
+  if (!firmsPontosRaw.length) return;
+  var fogosPerto = nearbyFires();
+  firmsPontos = firmsPontosRaw.filter(function(p){
+    if (!fogosPerto.length){ p.perto = Infinity; return true; }
+    var dmin = Infinity;
+    for (var i=0; i<fogosPerto.length; i++){
+      var d = hav(p.lat, p.lon, fogosPerto[i].lat, fogosPerto[i].lng);
+      if (d < dmin) dmin = d;
+    }
+    p.perto = dmin;
+    return dmin > FIRMS_UNMATCHED_KM;
+  });
+  if (gFirmsS) drawFirmsS();
+}
+
+function bboxRef(){
+  var raioKm = RADIUS_KM + FIRMS_MARGIN_KM;
+  var dLat = raioKm/111;
+  var dLon = raioKm/((111*Math.cos(REF.lat*Math.PI/180))||1);
+  return [(REF.lon-dLon).toFixed(3), (REF.lat-dLat).toFixed(3),
+          (REF.lon+dLon).toFixed(3), (REF.lat+dLat).toFixed(3)].join(",");
+}
+
+/* CSV simples da FIRMS Area API: sem vírgulas dentro de campos nem
+   valores entre aspas — um split direto chega, sem precisar de parser. */
+function parseCsvFirms(texto){
+  var linhas = String(texto||"").trim().split("\n").filter(Boolean);
+  if (linhas.length < 2) return [];
+  var cols = linhas[0].split(",");
+  var iLat=cols.indexOf("latitude"), iLon=cols.indexOf("longitude"),
+      iConf=cols.indexOf("confidence"), iData=cols.indexOf("acq_date"),
+      iHora=cols.indexOf("acq_time"), iFrp=cols.indexOf("frp"),
+      iSat=cols.indexOf("satellite");
+  if (iLat===-1 || iLon===-1) return [];
+  var out = [];
+  for (var k=1; k<linhas.length; k++){
+    var v = linhas[k].split(",");
+    var lat = parseFloat(v[iLat]), lon = parseFloat(v[iLon]);
+    if (!isFinite(lat) || !isFinite(lon)) continue;
+    out.push({
+      lat:lat, lon:lon,
+      conf: iConf!==-1 ? v[iConf] : "",
+      data: iData!==-1 ? v[iData] : "",
+      hora: iHora!==-1 ? v[iHora] : "",
+      frp:  iFrp!==-1 ? parseFloat(v[iFrp]) : null,
+      sat:  iSat!==-1 ? v[iSat] : ""
+    });
+  }
+  return out;
+}
+
+function loadFirms(){
+  if (!proxyProprio){
+    DIAG_FIRMS = { ok:false, via:"—",
+      msg:"sem Worker próprio configurado — a FIRMS precisa de chave secreta, não passa pelos proxies públicos" };
+    renderDiag();
+    return Promise.resolve(false);
+  }
+  var bbox = bboxRef();
+  var url  = proxyProprio.replace(/\/+$/,"") + "/?firms=" + bbox;
+  var url2 = proxyProprio2 ? proxyProprio2.replace(/\/+$/,"") + "/?firms=" + bbox : null;
+
+  return fetchJSON(url, 12000, null, "texto")
+    .catch(function(e){
+      if (!url2) return Promise.reject(e);
+      return fetchJSON(url2, 12000, null, "texto");
+    })
+    .then(function(texto){
+      firmsPontosRaw = parseCsvFirms(texto);
+      recomputeFirms();
+      DIAG_FIRMS = { ok:true, via:"FIRMS/VIIRS",
+        msg: firmsPontosRaw.length+" foco(s) detetado(s) na zona, "+firmsPontos.length+" sem ocorrência associada" };
+      renderDiag();
+      return true;
+    })
+    .catch(function(e){
+      DIAG_FIRMS = { ok:false, via:"—", msg:"FIRMS: "+e.message };
+      renderDiag();
+      return false;
+    });
+}
+
+function drawFirmsS(){
+  if (!gFirmsS) return;
+  gFirmsS.clearLayers();
+  var col = cssVar("--red");
+  firmsPontos.forEach(function(p){
+    var horaFmt = String(p.hora||"").replace(/^(\d{1,2})(\d{2})$/, function(_,h,m){
+      return (h.length<2?"0"+h:h)+":"+m;
+    });
+    L.circleMarker([p.lat,p.lon], { radius:9, color:col, weight:2,
+      fillColor:col, fillOpacity:0.22, dashArray:"3,3" })
+      .bindPopup(
+        '<b>Foco de calor por satélite</b><br>'+
+        'Sem ocorrência reportada perto'+
+        (isFinite(p.perto) ? ' (mais próxima a '+p.perto.toFixed(1)+' km)' : ' (nenhuma na zona)')+'<br>'+
+        '<span class="mono">'+esc(p.data)+' '+esc(horaFmt)+' UTC · '+esc(p.sat)+
+        (p.frp!==null && isFinite(p.frp) ? ' · FRP '+p.frp.toFixed(0) : '')+
+        (p.conf ? ' · confiança '+esc(p.conf) : '')+'</span>'
+      )
+      .addTo(gFirmsS);
+  });
 }
 
 /* ============================================================
@@ -2466,6 +2603,7 @@ var gRoadS = L.layerGroup().addTo(mapS);
 var gAcS = L.layerGroup().addTo(mapS);
 var gTrackS = L.layerGroup().addTo(mapS);
 var gDropS = L.layerGroup().addTo(mapS);
+gFirmsS = L.layerGroup().addTo(mapS);
 
 /* interruptor de escala de cinzentos: não é uma camada visual própria,
    é um grupo vazio só para aparecer no controlo com caixa de marcar —
@@ -2481,7 +2619,8 @@ var ctlS = L.control.layers(
     "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
     "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
     "Área ardida — VIIRS NRT":lBaNrt, "Área ardida — hoje":lBaDay,
-    "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea },
+    "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea,
+    "Focos sem ocorrência (satélite)":gFirmsS },
   { collapsed:true }
 ).addTo(mapS);
 mapS.on("overlayadd", function(e){
@@ -4026,6 +4165,11 @@ function renderDiag(){
       '<span class="dot '+(DIAG_SAF.ok?"ok":"bad")+'"></span><span class="nm">LSA-SAF</span>'+
       '<span class="via">IPMA · 15 min</span></div><div class="msg">'+esc(DIAG_SAF.msg)+'</div></div>';
   }
+  if (DIAG_FIRMS.ok !== null){
+    html += '<div class="dg '+(DIAG_FIRMS.ok?"":"bad")+'"><div class="dg-top">'+
+      '<span class="dot '+(DIAG_FIRMS.ok?"ok":"bad")+'"></span><span class="nm">Satélite (FIRMS)</span>'+
+      '<span class="via">'+esc(DIAG_FIRMS.via)+'</span></div><div class="msg">'+esc(DIAG_FIRMS.msg)+'</div></div>';
+  }
   var tk = Object.keys(tempos);
   if (tk.length){
     var pior = tk.reduce(function(a,b){ return tempos[a] > tempos[b] ? a : b; });
@@ -4389,7 +4533,7 @@ function refreshAll(forcar){
   if (!forcar && Date.now() - ultimoRefresh < 25000) return;
   ultimoRefresh = Date.now();
   DIAG.incidents.ok = null; DIAG.aircraft.ok = null;
-  renderDiag(); loadIncidents(); loadAircraft(); loadWeather(); loadRisco();
+  renderDiag(); loadIncidents(); loadAircraft(); loadWeather(); loadRisco(); loadFirms();
 }
 
 var pendingResume = [];
@@ -4531,6 +4675,7 @@ schedule(loadAircraft, AC_MS, function(b){
 schedule(loadIncidents, INC_MS, function(b){ return usingProxy() ? Math.max(b,120000) : b; });
 schedule(loadWeather, WX_MS);
 schedule(loadRisco, 30*60*1000);
+schedule(loadFirms, FIRMS_MS);
 
 /* Se há casa guardada, é ela que manda: arranca de imediato, sem
    esperar pelo GPS nem sobrepor-se à escolha. Sem casa, tenta a
