@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.67";
+var VERSAO = "2026-09-24.68";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -3254,7 +3254,14 @@ if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)")
    projeção do Leaflet (muito improvável, é código estável da biblioteca)
    ou o que se está a ver não é este marcador (outra camada, outro ícone). */
 function diagPosicoes(store){
-  store = store || marksS;
+  var mapaAtivo = view === "radar" ? mapR : mapS;
+  store = store || (view === "radar" ? marksR : marksS);
+  if (mapaAtivo){
+    var c = mapaAtivo.getCenter();
+    console.log("Vista: "+view+" · zoom: "+mapaAtivo.getZoom()+
+      " · centro do mapa: "+c.lat.toFixed(4)+", "+c.lng.toFixed(4)+
+      " · REF (referência): "+REF.lat.toFixed(4)+", "+REF.lon.toFixed(4));
+  }
   var linhas = Object.keys(store).map(function(k){
     var m = store[k];
     var ll = m.mk.getLatLng();
