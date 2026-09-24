@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.74";
+var VERSAO = "2026-09-24.75";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -942,26 +942,6 @@ var INC_MS         = 60 * 1000;
 var AC_MS          = 10 * 1000;
 var WX_MS          = 10 * 60 * 1000;
 var DR_MAX_S       = 45;
-/* Posição desenhada ~um ciclo de sondagem (AC_MS) atrás do relógio real, para
-   que quase sempre haja DOIS fixos reais a envolver o instante mostrado —
-   interpolar entre eles em vez de extrapolar a partir de só um. A ideia e o
-   "porquê" vêm do GEV (github.com/bilawalsidhu/gods-eye-view, MIT), função
-   _deadReckon em app/layers/flights/motion.js: trocar "instantâneo" por
-   "sem saltos". Os valores abaixo (limiares de velocidade, graus/seg) são
-   próprios — não são cópia de motionModel.js do GEV, que não foi lido. */
-var DR_RENDER_DELAY_MS = 9000;
-var DR_COURSE_HOLD_GS  = 5;   // abaixo disto o rumo é ruído — mantém-se o último
-var DR_SLEW_MAX_DPS    = 25;  // viragem máxima do ícone, graus por segundo
-/* P3: banda-morta de rotação — abaixo disto, uma mudança de rumo é ruído de
-   amostragem, não viragem real, e nem se toca no ícone. Valor (0.5°) e a
-   própria ideia vêm de stabilizeScreenRotation em iconOrientation.js do GEV
-   (github.com/bilawalsidhu/gods-eye-view, MIT) — aí serve para não sacudir
-   um billboard 3D por ruído de projeção; aqui a fonte do ruído é outra
-   (jitter de heading reportado pela fonte ADS-B, não projeção de câmara),
-   mas o problema e a cura são exatamente os mesmos: sem isto, um rumo
-   estável mas com ±1° de ruído por leitura fazia o ícone "tremer"
-   continuamente em vez de ficar quieto. */
-var DR_DEADBAND_DEG    = 0.5;
 var TRACK_MAX_MIN  = 40;
 var GEOID_N        = 54;
 var DROP_AGL_MAX   = 180;
@@ -2907,46 +2887,25 @@ function setTxt(m,txt,fire){
   t.className = "tag"+(fire?" fire":"");
 }
 
-/* Diferença mais curta entre dois ângulos em graus, interpolada por t∈[0,1] —
-   evita que o rumo salte ao passar por norte (359°→2°). */
-function lerpAngleDeg(a,b,t){
-  var d = ((b-a+540)%360)-180;
-  return a + d*t;
-}
-
 function upsert(store, group, key, x, col, txt, comTag, popup){
   var a = x.a, trk = Math.round(num(a.track));
   var m = store[key];
-  var fix = {
-    t: Date.now() - Math.min(num(a.seen_pos), DR_MAX_S*0.8)*1000,
-    lat: a.lat, lon: a.lon, gs: num(a.gs),
-    trk: (typeof a.track === "number" && isFinite(a.track)) ? a.track : null
-  };
   if (!m){
     m = store[key] = { mk: L.marker([a.lat,a.lon],
           { icon:acIcon(col,trk,x.fire,txt,comTag) }).addTo(group) };
-    m.trk=trk; m.dispTrk=trk; m.col=col; m.fire=x.fire; m.txt=txt;
-    m.h0=null; m.h1=fix;
+    m.trk=trk; m.col=col; m.fire=x.fire; m.txt=txt;
+  } else if (m.col!==col || m.fire!==x.fire){
+    m.mk.setIcon(acIcon(col,trk,x.fire,txt,comTag));
+    m.col=col; m.fire=x.fire; m.trk=trk; m.txt=txt;
   } else {
-    if (m.col!==col || m.fire!==x.fire){
-      m.mk.setIcon(acIcon(col,trk,x.fire,txt,comTag));
-      m.col=col; m.fire=x.fire; m.txt=txt;
-    } else if (comTag && m.txt!==txt){
-      setTxt(m,txt,x.fire); m.txt=txt;
-    }
-    /* janela de dois fixos para a interpolação em animate(): só avança h0
-       quando chega mesmo um instante novo (uma leitura repetida do mesmo
-       ciclo apenas refina h1, sem empurrar h0 para trás dele). */
-    if (!m.h1 || fix.t > m.h1.t) m.h0 = m.h1;
-    m.h1 = fix;
+    if (m.trk!==trk){ setTrk(m,trk); m.trk=trk; }
+    if (comTag && m.txt!==txt){ setTxt(m,txt,x.fire); m.txt=txt; }
   }
-  /* categoria de emitter ADS-B (readsb): "A7" = rotorcraft. Nem toda a fonte
-     publica isto — quando falta, o código simplesmente nunca aplica o
-     tratamento especial de helicóptero, sem quebrar nada. [Inferência]
-     quanto ao nome exato do campo nas respostas de adsb.lol/adsb.fi. */
-  m.cat = (a.category||"").toUpperCase();
+  m.lat=a.lat; m.lon=a.lon; m.gs=num(a.gs);
   m.hex=a.hex||""; m.reg=a.r||"";
+  m.t0 = Date.now() - Math.min(num(a.seen_pos), DR_MAX_S*0.8)*1000;
   m.alive = true;
+  m.mk.setLatLng([a.lat,a.lon]);
   m.mk.setZIndexOffset(x.fire?700:300);
   if (m.lastOp !== 1){ setOp(m,1); m.lastOp=1; }
 
@@ -2965,85 +2924,25 @@ function sweep(store, group){
     var m = store[k];
     if (m.alive) return;
     /* a cobertura em vale é intermitente: dar folga antes de apagar */
-    if (now - m.h1.t > DR_MAX_S*2000){ group.removeLayer(m.mk); delete store[k]; }
+    if (now - m.t0 > DR_MAX_S*2000){ group.removeLayer(m.mk); delete store[k]; }
   });
-}
-
-/* Posição e rumo mostrados neste instante para uma aeronave, ~DR_RENDER_DELAY_MS
-   atrás do relógio real (ver a nota junto às constantes). Três casos:
-    1) há dois fixos reais a envolver o instante — interpola-se a posição
-       linearmente entre eles, e o rumo mistura o track reportado com o
-       verdadeiro rumo da deslocação (a "corda" entre os dois pontos),
-       pesado pela velocidade do troço: a corda só é fiável a velocidade
-       significativa (a baixa velocidade é ruído de GPS) e num helicóptero
-       nunca é fiável (o rotor domina o ruído), caso em que fica só o track;
-    2) não há par (aeronave acabada de aparecer, ou fonte parada) —
-       extrapola-se a direito a partir do fixo mais recente, como antes;
-    3) sem dados de velocidade/rumo utilizáveis — mantém-se a última posição
-       e o último rumo mostrado.
-   Estrutura adaptada de _deadReckon em motion.js do GEV (MIT); os limiares
-   numéricos (DR_COURSE_HOLD_GS, o intervalo de mistura da corda) são
-   próprios, não uma cópia de speedRamp() do GEV, que não foi lida. */
-function dispPosicao(m, renderT){
-  var h0=m.h0, h1=m.h1;
-  if (h0 && h0.t < h1.t && renderT >= h0.t && renderT <= h1.t){
-    var span = (h1.t-h0.t)/1000, t = (renderT-h0.t)/(h1.t-h0.t);
-    var lat = h0.lat + (h1.lat-h0.lat)*t, lon = h0.lon + (h1.lon-h0.lon)*t;
-    var distM = hav(h0.lat,h0.lon,h1.lat,h1.lon)*1000;
-    var segSpeed = span>0 ? distM/span : (h1.gs||0)*0.514444;
-    var trkFrom = h0.trk!=null ? h0.trk : (h1.trk!=null?h1.trk:0);
-    var trkTo   = h1.trk!=null ? h1.trk : trkFrom;
-    var trackCourse = lerpAngleDeg(trkFrom, trkTo, t);
-    var w = (m.cat==="A7") ? 0 : Math.max(0, Math.min(1, (segSpeed-2)/8));
-    var course = trackCourse;
-    if (w > 0){
-      var chordCourse = brgTo(h0.lat,h0.lon,h1.lat,h1.lon);
-      course = lerpAngleDeg(trackCourse, chordCourse, w);
-    }
-    return { lat:lat, lon:lon, trk:course };
-  }
-  var dt = (renderT - h1.t)/1000; if (dt<0) dt=0;
-  var gs = h1.gs||0;
-  if (!gs || gs < DR_COURSE_HOLD_GS || h1.trk==null)
-    return { lat:h1.lat, lon:h1.lon, trk: h1.trk!=null?h1.trk:m.dispTrk };
-  var d = gs*0.514444*dt, r = h1.trk*Math.PI/180;
-  return {
-    lat: h1.lat + (d*Math.cos(r))/111320,
-    lon: h1.lon + (d*Math.sin(r))/(111320*Math.cos(h1.lat*Math.PI/180)),
-    trk: h1.trk
-  };
 }
 
 function animate(){
   if (document.hidden) return;
   var store = view === "radar" ? marksR : marksS;
-  var now = Date.now(), renderT = now - DR_RENDER_DELAY_MS;
+  var now = Date.now();
   Object.keys(store).forEach(function(k){
     var m = store[k];
-    var age = (now-m.h1.t)/1000; if (age<0) age=0;
-    var op = age <= DR_MAX_S*0.5 ? 1 : Math.max(0.2, 1-(age-DR_MAX_S*0.5)/(DR_MAX_S*1.5));
-    if (age > DR_MAX_S){
+    var dt = (now-m.t0)/1000; if (dt<0) dt=0;
+    var op = dt <= DR_MAX_S*0.5 ? 1 : Math.max(0.2, 1-(dt-DR_MAX_S*0.5)/(DR_MAX_S*1.5));
+    if (dt > DR_MAX_S || !m.gs || m.gs < 5){
       if (Math.abs((m.lastOp||1)-op) > 0.03){ setOp(m,op); m.lastOp=op; }
       return;
     }
-    var p = dispPosicao(m, renderT);
-
-    /* limitador de viragem: o ícone não roda mais depressa do que
-       DR_SLEW_MAX_DPS, para não saltar entre leituras ruidosas de rumo
-       (ideia do GEV — courseSlewCapDps/limitCourseStep em motion.js,
-       não lidas; o limiar aqui é próprio). */
-    var prevTrk = isFinite(m.dispTrk) ? m.dispTrk : p.trk;
-    var maxStep = DR_SLEW_MAX_DPS * 0.5; // tick de animate() a cada 500 ms
-    var diff = ((p.trk-prevTrk+540)%360)-180;
-    if (Math.abs(diff) < DR_DEADBAND_DEG){
-      m.dispTrk = prevTrk; // ruído sub-grau: mantém exatamente o valor anterior
-    } else {
-      m.dispTrk = (Math.abs(diff) <= maxStep ? p.trk : prevTrk + (diff<0?-1:1)*maxStep + 360) % 360;
-    }
-
-    m.mk.setLatLng([p.lat, p.lon]);
-    var trkInt = Math.round(m.dispTrk);
-    if (m.trk !== trkInt){ setTrk(m,trkInt); m.trk=trkInt; }
+    var d = m.gs*0.514444*dt, r = m.trk*Math.PI/180;
+    m.mk.setLatLng([ m.lat + (d*Math.cos(r))/111320,
+                     m.lon + (d*Math.sin(r))/(111320*Math.cos(m.lat*Math.PI/180)) ]);
     if (Math.abs((m.lastOp||1)-op) > 0.03){ setOp(m,op); m.lastOp=op; }
   });
 }
