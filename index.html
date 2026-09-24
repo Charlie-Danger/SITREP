@@ -926,7 +926,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.82";
+var VERSAO = "2026-09-24.85";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -1711,6 +1711,7 @@ function loadIncidents(){
     DIAG.incidents = { ok:true, via:(fontes.join(" + ")||"—")+(parcial?" (parcial)":""), msg:note };
     renderIncidents(); renderRoads(); renderDiag();
     if (radarReady) drawFires();
+    recomputeFirms();
     /* o vento por incêndio só depois de a lista estar completa */
     if (!parcial) loadFireWinds();
   }
@@ -2446,6 +2447,7 @@ function detectDrops(){
 var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true,
                             maxBounds: limitesRef(), maxBoundsViscosity: 1.0 })
               .setView([REF.lat,REF.lon],10);
+L.control.scale({ metric:true, imperial:false, position:"bottomleft" }).addTo(mapS);
 
 var sSat  = L.tileLayer(ESRI+"World_Imagery/MapServer/tile/{z}/{y}/{x}",
               { maxZoom:18, attribution:"Imagery &copy; Esri", className:"sat-tiles" }).addTo(mapS);
@@ -2490,23 +2492,23 @@ var gRoadS = L.layerGroup().addTo(mapS);
 var gAcS = L.layerGroup().addTo(mapS);
 var gTrackS = L.layerGroup().addTo(mapS);
 var gDropS = L.layerGroup().addTo(mapS);
+var gFirmsS = L.layerGroup().addTo(mapS);
 /* interruptor de escala de cinzentos: não é uma camada visual própria,
    é um grupo vazio só para aparecer no controlo com caixa de marcar —
    ligar/desligar dispara overlayadd/overlayremove, que troca a classe
    CSS no contentor do mapa (ver #mapS.cinza acima). */
 var grisS = L.layerGroup();
-var ctlS = L.control.layers(
-  { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM },
-  { "Nomes de povoação":sNomes, "Estradas":sEstradas,
-    "Escala de cinzentos (satélite)":grisS,
-    "Ocorrências":gIncS, "Setas de propagação":gVentoS,
-    "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
-    "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
-    "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
-    "Área ardida — VIIRS NRT":lBaNrt, "Área ardida — hoje":lBaDay,
-    "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea },
-  { collapsed:true }
-).addTo(mapS);
+var baseLayersS = { "Satélite (Esri)":sSat, "Topográfico (Esri)":sTopo, "OpenStreetMap":sOSM };
+var overlayLayersS = { "Nomes de povoação":sNomes, "Estradas":sEstradas,
+  "Escala de cinzentos (satélite)":grisS,
+  "Ocorrências":gIncS, "Setas de propagação":gVentoS,
+  "Vias condicionadas":gRoadS, "Aeronaves":gAcS,
+  "Trajetórias de combate":gTrackS, "Descargas prováveis":gDropS,
+  "Focos sem ocorrência (satélite)":gFirmsS,
+  "Focos VIIRS (7 d)":lHot, "Focos VIIRS+MODIS":lHotAll,
+  "Área ardida — VIIRS NRT":lBaNrt, "Área ardida — hoje":lBaDay,
+  "Área ardida — 7 dias":lBaWk, "Área ardida — época":lBaSea };
+var ctlS = L.control.layers(baseLayersS, overlayLayersS, { collapsed:true }).addTo(mapS);
 mapS.on("overlayadd", function(e){
   if (e.layer === grisS) mapS.getContainer().classList.add("cinza");
 });
@@ -2516,13 +2518,54 @@ mapS.on("overlayremove", function(e){
 
 /* O topográfico e o OSM já trazem nomes e estradas desenhados: manter a
    camada de referência por cima duplicaria os rótulos. */
-mapS.on("baselayerchange", function(e){
-  var precisa = (e.layer === sSat);
+function sincronizarNomesEstradas(baseAtiva){
+  var precisa = (baseAtiva === sSat);
   [sNomes, sEstradas].forEach(function(l){
     if (precisa && !mapS.hasLayer(l)) mapS.addLayer(l);
     if (!precisa && mapS.hasLayer(l)) mapS.removeLayer(l);
   });
-});
+}
+mapS.on("baselayerchange", function(e){ sincronizarNomesEstradas(e.layer); });
+
+/* Memória de camadas: o que o utilizador liga/desliga fica guardado
+   entre sessões (localStorage), por camada e por base ativa — sem
+   isso, cada recarregar da página voltava sempre ao estado por
+   omissão, obrigando a reconfigurar o mapa todas as vezes. */
+var LAYER_MEM_KEY = "sitrep_layers_sitrep";
+function lerMemCamadas(){
+  try { return JSON.parse(localStorage.getItem(LAYER_MEM_KEY) || "null"); }
+  catch(e){ return null; }
+}
+function gravarMemCamadas(){
+  try {
+    var base = null;
+    Object.keys(baseLayersS).forEach(function(n){ if (mapS.hasLayer(baseLayersS[n])) base = n; });
+    var overlays = {};
+    Object.keys(overlayLayersS).forEach(function(n){ overlays[n] = mapS.hasLayer(overlayLayersS[n]); });
+    localStorage.setItem(LAYER_MEM_KEY, JSON.stringify({ base:base, overlays:overlays }));
+  } catch(e){}
+}
+(function aplicarMemCamadas(){
+  var mem = lerMemCamadas();
+  if (!mem) return;
+  if (mem.base && baseLayersS[mem.base]){
+    Object.keys(baseLayersS).forEach(function(n){
+      var l = baseLayersS[n];
+      if (n === mem.base){ if (!mapS.hasLayer(l)) mapS.addLayer(l); }
+      else if (mapS.hasLayer(l)) mapS.removeLayer(l);
+    });
+    sincronizarNomesEstradas(baseLayersS[mem.base]);
+  }
+  if (mem.overlays){
+    Object.keys(overlayLayersS).forEach(function(n){
+      if (!(n in mem.overlays)) return;
+      var l = overlayLayersS[n], deve = !!mem.overlays[n];
+      if (deve && !mapS.hasLayer(l)) mapS.addLayer(l);
+      if (!deve && mapS.hasLayer(l)) mapS.removeLayer(l);
+    });
+  }
+})();
+mapS.on("overlayadd overlayremove baselayerchange", gravarMemCamadas);
 
 var refMarker = L.marker([REF.lat,REF.lon], {
   icon:L.divIcon({ className:"", html:'<div class="ref-icon"></div>',
@@ -2653,6 +2696,7 @@ function buildRadar(){
                           maxBounds: limitesRef(), maxBoundsViscosity: 1.0 })
           .setView([REF.lat,REF.lon], 10);
   L.control.zoom({ position:"bottomright" }).addTo(mapR);
+  L.control.scale({ metric:true, imperial:false, position:"bottomleft" }).addTo(mapR);
 
   mapR.createPane("labels");
   mapR.getPane("labels").style.zIndex = 350;
@@ -2811,6 +2855,111 @@ function drawFires(){
   });
 }
 
+/* ============================================================
+   FIRMS (NASA) — focos de satélite sem ocorrência correspondente
+   ------------------------------------------------------------
+   Cruza os focos VIIRS (deteção por satélite, quase em tempo real)
+   com as ocorrências já reportadas (ANEPC/fogos.pt). Um foco sem
+   nenhuma ocorrência próxima pode ser um início de incêndio ainda
+   não reportado, uma queima controlada, ou uma fonte de calor
+   industrial — por isso aparece só como "sem ocorrência próxima",
+   nunca como incêndio confirmado. Precisa da FIRMS_MAP_KEY no
+   Worker (ver topo do worker.js); sem ela, esta camada fica vazia,
+   sem quebrar mais nada. [Não verificado] o formato exato de
+   resposta da API FIRMS não foi testado ao vivo a partir daqui —
+   a leitura é feita pelo cabeçalho do CSV (por nome de coluna, não
+   por posição), para ser tolerante a pequenas variações. */
+var FIRMS_MS = 6*60*1000;      // a NASA atualiza VIIRS a cada ~3-6h
+var FIRMS_MARGIN_KM = 8;       // bbox à volta da REF, em cada direção
+var FIRMS_UNMATCHED_KM = 3;    // acima disto, considera-se "sem ocorrência próxima"
+var firmsPontosRaw = [];
+var firmsPontos = [];
+var DIAG_FIRMS = { ok:null, msg:"" };
+
+function bboxRef(){
+  var kmPorGrauLat = 111.32;
+  var dLat = FIRMS_MARGIN_KM / kmPorGrauLat;
+  var dLon = FIRMS_MARGIN_KM / (kmPorGrauLat * Math.cos(REF.lat*Math.PI/180));
+  return [ (REF.lon-dLon).toFixed(4), (REF.lat-dLat).toFixed(4),
+           (REF.lon+dLon).toFixed(4), (REF.lat+dLat).toFixed(4) ].join(",");
+}
+
+function parseCsvFirms(cabecalho, linhas){
+  var cols = (cabecalho||"").split(",");
+  var iLat=cols.indexOf("latitude"), iLon=cols.indexOf("longitude"),
+      iConf=cols.indexOf("confidence"), iFrp=cols.indexOf("frp"),
+      iData=cols.indexOf("acq_date"), iHora=cols.indexOf("acq_time"),
+      iSat=cols.indexOf("satellite"), iDia=cols.indexOf("daynight");
+  if (iLat < 0 || iLon < 0) return [];
+  return (linhas||[]).filter(Boolean).map(function(l){
+    var c = l.split(",");
+    return {
+      lat: parseFloat(c[iLat]), lon: parseFloat(c[iLon]),
+      conf: iConf>=0 ? c[iConf] : "", frp: iFrp>=0 ? parseFloat(c[iFrp]) : null,
+      data: iData>=0 ? c[iData] : "", hora: iHora>=0 ? c[iHora] : "",
+      satelite: iSat>=0 ? c[iSat] : "", dianoite: iDia>=0 ? c[iDia] : ""
+    };
+  }).filter(function(p){ return isFinite(p.lat) && isFinite(p.lon); });
+}
+
+function recomputeFirms(){
+  firmsPontos = firmsPontosRaw.filter(function(p){
+    return !incidents.some(function(i){
+      return hav(p.lat,p.lon,i.lat,i.lng) <= FIRMS_UNMATCHED_KM;
+    });
+  });
+  drawFirmsS();
+}
+
+function drawFirmsS(){
+  gFirmsS.clearLayers();
+  var col = cssVar("--red");
+  firmsPontos.forEach(function(p){
+    L.circleMarker([p.lat,p.lon], { radius:6, color:col, weight:1.4,
+      fillColor:col, fillOpacity:0.25, dashArray:"2,3" })
+      .bindPopup('<b>Foco de satélite sem ocorrência próxima</b><br>'+
+        '<span class="mono">'+esc(p.satelite||"—")+' · confiança '+esc(p.conf||"—")+'</span><br>'+
+        (p.frp!=null && isFinite(p.frp) ? '<span class="mono">FRP '+p.frp.toFixed(1)+' MW</span><br>' : '')+
+        '<span class="mono">'+esc(p.data||"")+' '+esc(p.hora||"")+' UTC · '+
+          (p.dianoite==="N"?"noite":"dia")+'</span>')
+      .addTo(gFirmsS);
+  });
+}
+
+function loadFirms(){
+  if (!proxyProprio){
+    DIAG_FIRMS = { ok:false, msg:"sem Worker próprio configurado" };
+    renderDiag(); return;
+  }
+  var u = proxyProprio.replace(/\/+$/,"") + "/?bboxFirms=" + encodeURIComponent(bboxRef());
+  var ctrl = new AbortController();
+  var relogio = setTimeout(function(){ ctrl.abort(); }, 12000);
+  fetch(u, { signal:ctrl.signal }).then(function(r){
+    clearTimeout(relogio); return r.json();
+  }).then(function(j){
+    if (!j || j.erro){
+      DIAG_FIRMS = { ok:false, msg:(j&&j.erro) || "resposta vazia" };
+      firmsPontosRaw = [];
+    } else {
+      var pontos = [];
+      (j.fontes||[]).forEach(function(f){
+        parseCsvFirms(f.cabecalho, f.corpo).forEach(function(p){
+          p.fonte = f.fonte; pontos.push(p);
+        });
+      });
+      firmsPontosRaw = pontos;
+      DIAG_FIRMS = { ok:true, msg:pontos.length+" foco(s) de satélite na área" };
+    }
+    recomputeFirms(); renderDiag();
+  }).catch(function(e){
+    clearTimeout(relogio);
+    DIAG_FIRMS = { ok:false, msg:"FIRMS: "+e.message };
+    recomputeFirms(); renderDiag();
+  });
+}
+setInterval(loadFirms, FIRMS_MS);
+loadFirms();
+
 /* Ícones estáticos (posição fixa, sem cor dependente de dados) — por isso
    só precisam de ser redesenhados quando o TEMA muda (cor vem de cssVar),
    nunca quando REF se move: ao contrário dos anéis, não são geodésicos
@@ -2912,48 +3061,6 @@ function setTxt(m,txt,fire){
   t.className = "tag"+(fire?" fire":"");
 }
 
-/* mira de depuração: dois alvos e uma linha entre eles.
-   Magenta = coordenadas reais que o Leaflet regista para o marcador
-   (getLatLng(), sem ícone nem rotação nem CSS — a âncora "de verdade").
-   Ciano = centro do retângulo que o ÍCONE desenhado (o <div> do
-   divIcon, já com a rotação aplicada) ocupa mesmo no ecrã, convertido
-   de volta para lat/lon via containerPointToLatLng(). Se coincidirem,
-   o ícone está a desenhar-se em cima da sua própria âncora. Se não
-   coincidirem, a linha entre os dois mostra o desvio exato. */
-var debugMiraReal = null, debugMiraIcone = null, debugLinha = null;
-function debugCrosshair(m, map){
-  if (!map) return;
-  var latlngReal = m.mk.getLatLng();
-  var el = m.mk.getElement();
-  if (debugMiraReal) map.removeLayer(debugMiraReal);
-  if (debugMiraIcone) map.removeLayer(debugMiraIcone);
-  if (debugLinha) map.removeLayer(debugLinha);
-
-  debugMiraReal = L.circleMarker(latlngReal, {
-    radius:9, color:"#ff00ff", weight:2, fill:false,
-    dashArray:"3,3", interactive:false
-  }).addTo(map);
-
-  if (!el){ console.log("mira: sem elemento DOM do ícone"); return; }
-  var r = el.getBoundingClientRect();
-  var mr = map.getContainer().getBoundingClientRect();
-  var pt = L.point(r.left + r.width/2 - mr.left, r.top + r.height/2 - mr.top);
-  var latlngIcone = map.containerPointToLatLng(pt);
-
-  debugMiraIcone = L.circleMarker(latlngIcone, {
-    radius:9, color:"#00e5ff", weight:2, fill:false,
-    dashArray:"3,3", interactive:false
-  }).addTo(map);
-
-  debugLinha = L.polyline([latlngReal, latlngIcone], {
-    color:"#ffff00", weight:2, dashArray:"2,6", interactive:false
-  }).addTo(map);
-
-  console.log("mira REAL (magenta):", latlngReal.lat.toFixed(6), latlngReal.lng.toFixed(6),
-              "· mira ÍCONE (ciano):", latlngIcone.lat.toFixed(6), latlngIcone.lng.toFixed(6),
-              "· desvio:", Math.round(hav(latlngReal.lat,latlngReal.lng,latlngIcone.lat,latlngIcone.lng)*1000)+" m");
-}
-
 function upsert(store, group, key, x, col, txt, comTag, popup){
   var a = x.a, trk = Math.round(num(a.track));
   var m = store[key];
@@ -2961,13 +3068,6 @@ function upsert(store, group, key, x, col, txt, comTag, popup){
     m = store[key] = { mk: L.marker([a.lat,a.lon],
           { icon:acIcon(col,trk,x.fire,txt,comTag) }).addTo(group) };
     m.trk=trk; m.col=col; m.fire=x.fire; m.txt=txt;
-    /* mira de depuração: marca o ponto exato (getLatLng()) do próprio
-       marcador Leaflet ao clicar, para comparar a olho com a posição
-       visual do ícone/seta desenhado — se não coincidirem, confirma
-       que o desenho do ícone diverge da sua própria âncora geográfica */
-    m.mk.on("click", function(e){
-      debugCrosshair(m, view === "radar" ? mapR : mapS);
-    });
   } else if (m.col!==col || m.fire!==x.fire){
     m.mk.setIcon(acIcon(col,trk,x.fire,txt,comTag));
     m.col=col; m.fire=x.fire; m.trk=trk; m.txt=txt;
@@ -3682,7 +3782,9 @@ function acPopup(x){
     '<b>'+esc(id)+'</b><br><span class="mono">'+esc(x.label)+(a.r?" · "+esc(a.r):"")+'</span><br>'+
     '<span class="mono">'+alt+' · '+ktKmh(num(a.gs))+' km/h · rumo '+
       Math.round(num(a.track))+'°</span><br>'+
-    '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s</span><br>'+
+    '<span class="mono">posição de há '+Math.round(num(a.seen_pos))+' s · '+
+      '<a href="https://www.google.com/maps?q='+a.lat.toFixed(5)+','+a.lon.toFixed(5)+
+      '" target="_blank" rel="noopener">'+a.lat.toFixed(4)+', '+a.lon.toFixed(4)+'</a></span><br>'+
     '<span class="mono">'+(x.fire ? (x.reason==="tipo"
       ? "Tipo conhecido de combate" : "Perfil de voo compatível") : "Tráfego geral")+'</span>'+
     (x.mil ? '<br><span class="mono pp-mil">◆ aeronave militar/estatal '+
@@ -4242,6 +4344,11 @@ function renderDiag(){
     html += '<div class="dg '+(DIAG_SAF.ok?"":"bad")+'"><div class="dg-top">'+
       '<span class="dot '+(DIAG_SAF.ok?"ok":"bad")+'"></span><span class="nm">LSA-SAF</span>'+
       '<span class="via">IPMA · 15 min</span></div><div class="msg">'+esc(DIAG_SAF.msg)+'</div></div>';
+  }
+  if (DIAG_FIRMS.ok !== null){
+    html += '<div class="dg '+(DIAG_FIRMS.ok?"":"bad")+'"><div class="dg-top">'+
+      '<span class="dot '+(DIAG_FIRMS.ok?"ok":"bad")+'"></span><span class="nm">FIRMS (satélite)</span>'+
+      '<span class="via">NASA</span></div><div class="msg">'+esc(DIAG_FIRMS.msg)+'</div></div>';
   }
   var tk = Object.keys(tempos);
   if (tk.length){
