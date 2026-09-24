@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.61";
+var VERSAO = "2026-09-24.62";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -3616,7 +3616,17 @@ function onPopupOpen(e){
   var el = e.popup.getElement(); if (!el) return;
   var pp = el.querySelector(".pp"), box = el.querySelector(".pp-photo"),
       boxP = el.querySelector(".pp-poster");
-  if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg, pp.dataset.type, pp.dataset.typeicao);
+  /* "postertipo" (posterNome(x)) em vez de "type" (x.label) de propósito:
+     quando a classificação cai no ramo "perfil" (classify(), mais acima),
+     x.label fica com o código ICAO cru ("ST10"), mas photoTipoCache e a
+     Coleção usam sempre o nome legível (posterNome) como chave — usar
+     "type" aqui fazia loadPhoto guardar a foto genérica numa chave
+     ("ST10") que loadFotoGenericaTipo nunca ia procurar (procura em
+     "Socata ST-10 Diplomate"), por isso a Coleção parecia vazia mesmo
+     depois de já se ter visto e fotografado o mesmo tipo antes. Sem
+     nome mapeado (postertipo vazio), cai para o código cru — melhor
+     alguma chave do que nenhuma. */
+  if (pp && box) loadPhoto(box, pp.dataset.hex, pp.dataset.reg, pp.dataset.postertipo || pp.dataset.type, pp.dataset.typeicao);
   /* postertipo vem vazio quando não há nome descritivo de confiança —
      loadPoster já trata "" como "não gerar nada", ver mais abaixo */
   if (pp && boxP) loadPoster(boxP, pp.dataset.postertipo, pp.dataset.posterdesc, pp.dataset.typeicao);
