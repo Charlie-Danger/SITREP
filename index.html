@@ -926,7 +926,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-25.87";
+var VERSAO = "2026-09-25.88";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -3270,20 +3270,41 @@ function fotoTipoHtml(g){
    de código também usado por um produto, uma marca). */
 var WIKI_API = "https://en.wikipedia.org/w/api.php";
 var wikiFotoPromise = {}; // chave: tipo → promessa em curso, evita pedidos duplicados
+/* Palavras que a descrição curta (Wikidata, via pageterms) de um artigo
+   sobre uma aeronave costuma ter. Sem este filtro, o primeiro resultado
+   de pesquisa para "<tipo> aircraft" pode ser um artigo sobre a empresa,
+   um evento, ou uma pessoa ligada ao nome — e a imagem de destaque desse
+   artigo (ex.: um executivo num pódio) entrava como "foto do modelo"
+   sem qualquer verificação. Caso real visto: "Gulfstream V" apanhou a
+   foto de um orador num evento da Gulfstream Aerospace. */
+var PALAVRAS_AERONAVE = /aircraft|airplane|aeroplane|airliner|jet|helicopter|aviation|business jet/i;
 function buscarFotoWikipedia(tipo){
   if (!tipo) return Promise.resolve(null);
   if (wikiFotoPromise[tipo]) return wikiFotoPromise[tipo];
   var u = WIKI_API + "?action=query&generator=search&gsrsearch=" +
-          encodeURIComponent(tipo + " aircraft") + "&gsrlimit=1&gsrnamespace=0" +
-          "&prop=pageimages%7Cinfo&inprop=url&pithumbsize=640&format=json&origin=*";
+          encodeURIComponent(tipo + " aircraft") + "&gsrlimit=3&gsrnamespace=0" +
+          "&prop=pageimages%7Cpageterms%7Cinfo&inprop=url&pithumbsize=640&format=json&origin=*";
   var p = fetchJSON(u, 9000).then(function(j){
     var pages = j && j.query && j.query.pages;
     if (!pages) return null;
-    var chaves = Object.keys(pages);
-    if (!chaves.length) return null;
-    var pg = pages[chaves[0]];
-    if (!pg || !pg.thumbnail || !pg.thumbnail.source) return null;
-    return { src:pg.thumbnail.source, link:pg.fullurl || ("https://en.wikipedia.org/?curid="+pg.pageid), titulo:pg.title };
+    /* generator=search não garante a ordem de relevância nas chaves do
+       objeto "pages" — a ordem certa vem de query.pages na sequência de
+       "index" que cada página traz; sem isso, ordenar por "index". */
+    var lista = Object.keys(pages).map(function(k){ return pages[k]; })
+      .sort(function(a,b){ return (a.index||0)-(b.index||0); });
+    var candidato = lista.find(function(pg){
+      if (!pg || !pg.thumbnail || !pg.thumbnail.source) return false;
+      var desc = pg.terms && pg.terms.description && pg.terms.description[0];
+      /* sem descrição nenhuma, aceita-se na mesma (não é todo o artigo
+         de aviação que tem "short description" preenchida no Wikidata)
+         — o filtro só rejeita quando HÁ descrição e ela claramente não
+         é sobre uma aeronave, não quando falta informação. */
+      return !desc || PALAVRAS_AERONAVE.test(desc);
+    });
+    if (!candidato) return null;
+    return { src:candidato.thumbnail.source,
+             link:candidato.fullurl || ("https://en.wikipedia.org/?curid="+candidato.pageid),
+             titulo:candidato.title };
   }).catch(function(){ return null; });
   wikiFotoPromise[tipo] = p;
   return p;
