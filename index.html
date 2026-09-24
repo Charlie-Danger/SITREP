@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.66";
+var VERSAO = "2026-09-24.67";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -3240,6 +3240,45 @@ function animate(){
 if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches){
   setInterval(animate, 500);
 }
+
+/* Diagnóstico de posicionamento — a chamar manualmente na consola do
+   browser (F12 → Console → diagPosicoes()) quando se suspeitar de um
+   marcador fora do sítio. Compara, para cada aeronave em marksS/marksR:
+   - h1: o último fixo REAL recebido da fonte ADS-B (a.lat/a.lon guardado);
+   - mk: a posição que o próprio objeto Leaflet do marcador diz ter agora
+     (mk.getLatLng()) — ou seja, onde está desenhado de facto no mapa.
+   Se estas duas divergirem mais do que uns poucos km, o problema está
+   nalguma chamada a setLatLng() (ex.: animate()/dispPosicao()) a aplicar
+   um valor errado — não na fonte de dados nem no popup. Se forem iguais
+   mas mesmo assim aparecer longe no ecrã, o problema está na própria
+   projeção do Leaflet (muito improvável, é código estável da biblioteca)
+   ou o que se está a ver não é este marcador (outra camada, outro ícone). */
+function diagPosicoes(store){
+  store = store || marksS;
+  var linhas = Object.keys(store).map(function(k){
+    var m = store[k];
+    var ll = m.mk.getLatLng();
+    var dReal = hav(REF.lat, REF.lon, m.h1.lat, m.h1.lon);
+    var dRender = hav(REF.lat, REF.lon, ll.lat, ll.lng);
+    var divergencia = hav(m.h1.lat, m.h1.lon, ll.lat, ll.lng);
+    return {
+      key:k, hex:m.hex, reg:m.reg,
+      fixo_lat:+m.h1.lat.toFixed(4), fixo_lon:+m.h1.lon.toFixed(4),
+      desenhado_lat:+ll.lat.toFixed(4), desenhado_lon:+ll.lng.toFixed(4),
+      dist_fixo_km:+dReal.toFixed(1), dist_desenhado_km:+dRender.toFixed(1),
+      divergencia_km:+divergencia.toFixed(1)
+    };
+  }).sort(function(a,b){ return b.divergencia_km - a.divergencia_km; });
+  console.table(linhas);
+  var piores = linhas.filter(function(l){ return l.divergencia_km > 1; });
+  if (piores.length){
+    console.warn(piores.length+" marcador(es) com posição desenhada a mais de 1 km do último fixo real:", piores);
+  } else {
+    console.log("Todos os marcadores desenhados coincidem com o último fixo real (< 1 km de diferença).");
+  }
+  return linhas;
+}
+window.diagPosicoes = diagPosicoes;
 
 /* ---------- foto da aeronave ---------- */
 /* Sem confirmação de que a Planespotters (ou outra fonte) permite pesquisa
