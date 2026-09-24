@@ -916,7 +916,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.54";
+var VERSAO = "2026-09-24.55";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2799,12 +2799,20 @@ function drawAerodromos(){
   AERODROMOS.forEach(function(ad){
     var r = ad.t==="g" ? 6 : 4.5;
     var s = r*2+2; // lado do viewBox: 2r (losango) + 1px de folga de cada lado
+    var cx = r+1, cy = r+1, w = ad.t==="g" ? 1.6 : 1.2;
+    /* cruzeta de pista dentro do losango — símbolo de aeródromo que se lê
+       à primeira vista (como nas cartas aeronáuticas), sem se confundir
+       com os triângulos das aeronaves em voo nos outros marcadores. */
+    var k = r*0.62;
     L.marker([ad.lat,ad.lon], {
       icon:L.divIcon({ className:"aero-sym",
         html:'<svg class="aero-ico" width="'+s+'" height="'+s+'" viewBox="0 0 '+s+' '+s+'">'+
-             '<polygon points="'+(r+1)+',1 '+(s-1)+','+(r+1)+' '+(r+1)+','+(s-1)+' 1,'+(r+1)+
-             '" fill="none" stroke="'+col+
-             '" stroke-width="'+(ad.t==="g"?1.6:1.2)+'"/></svg>'+
+             '<polygon points="'+cx+',1 '+(s-1)+','+cy+' '+cx+','+(s-1)+' 1,'+cy+
+             '" fill="none" stroke="'+col+'" stroke-width="'+w+'"/>'+
+             '<line x1="'+(cx-k)+'" y1="'+(cy+k*0.55)+'" x2="'+(cx+k)+'" y2="'+(cy-k*0.55)+
+             '" stroke="'+col+'" stroke-width="'+(w*0.8)+'" stroke-linecap="round"/>'+
+             '<line x1="'+(cx-k*0.62)+'" y1="'+(cy-k*0.85)+'" x2="'+(cx+k*0.62)+'" y2="'+(cy+k*0.85)+
+             '" stroke="'+col+'" stroke-width="'+(w*0.8)+'" stroke-linecap="round"/></svg>'+
              '<div class="aero-lbl">'+esc(ad.ic)+'</div>',
         iconSize:[s, s+14], iconAnchor:[r+1, r+1] })
     }).bindPopup('<b>'+esc(ad.ic)+'</b> · '+esc(ad.nome)+
