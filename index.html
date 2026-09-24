@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.75";
+var VERSAO = "2026-09-24.76";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -927,6 +927,21 @@ var VERSAO = "2026-09-24.75";
    terreno — é pedido em função desta posição, por isso funciona em
    qualquer sítio para onde ela seja movida. */
 var REF = { lat: 40.2167, lon: -8.0500, name: "Arganil (por omissão)" };
+
+/* Leash: o Leaflet ancora o zoom ao cursor, não ao centro lógico do mapa,
+   por isso vários zoom-out seguidos sem o cursor exatamente sobre a REF
+   fazem o centro derivar para muito longe (confirmado com diagPosicoes():
+   centro chegou a -34.3,-4.2 com REF em 40.26,-8.11). Isto não mexe nas
+   aeronaves — continuam em lat/lon absolutos — só impede que o próprio
+   mapa se afaste tanto da REF que o tráfego real pareça uma coluna
+   espremida num canto do ecrã. */
+var MARGEM_LIMITE_GRAUS = 6;
+function limitesRef(){
+  return L.latLngBounds(
+    [REF.lat - MARGEM_LIMITE_GRAUS, REF.lon - MARGEM_LIMITE_GRAUS],
+    [REF.lat + MARGEM_LIMITE_GRAUS, REF.lon + MARGEM_LIMITE_GRAUS]
+  );
+}
 
 /* Experiência: raio alargado ao máximo que as fontes públicas costumam
    aceitar (250 NM é o limite documentado mais comum nos mirrors readsb
@@ -2421,7 +2436,9 @@ function detectDrops(){
 /* ============================================================
    MAPA — SITREP
    ============================================================ */
-var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true }).setView([REF.lat,REF.lon],10);
+var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true, minZoom:6,
+                            maxBounds: limitesRef(), maxBoundsViscosity: 1.0 })
+              .setView([REF.lat,REF.lon],10);
 
 var sSat  = L.tileLayer(ESRI+"World_Imagery/MapServer/tile/{z}/{y}/{x}",
               { maxZoom:18, attribution:"Imagery &copy; Esri", className:"sat-tiles" }).addTo(mapS);
@@ -2625,7 +2642,8 @@ var baseDark=null, labelsDark=null, lastZoom=null, ringTimer=null;
 
 function buildRadar(){
   if (mapR) return;
-  mapR = L.map("mapR", { zoomControl:false, preferCanvas:true, maxZoom:16 })
+  mapR = L.map("mapR", { zoomControl:false, preferCanvas:true, maxZoom:16, minZoom:6,
+                          maxBounds: limitesRef(), maxBoundsViscosity: 1.0 })
           .setView([REF.lat,REF.lon], 10);
   L.control.zoom({ position:"bottomright" }).addTo(mapR);
 
@@ -4261,6 +4279,8 @@ function setRef(lat, lon, name){
   REF.lat=lat; REF.lon=lon; REF.name=name||REF.name;
   paisRef = null;              /* a posição mudou: reavaliar o território */
   refMarker.setLatLng([lat,lon]);
+  mapS.setMaxBounds(limitesRef());
+  if (mapR) mapR.setMaxBounds(limitesRef());
   pintaRef();
   nomeLocal(lat, lon);
   if (radarReady) drawRings();
