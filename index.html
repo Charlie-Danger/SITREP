@@ -919,7 +919,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-24.78";
+var VERSAO = "2026-09-24.79";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2436,7 +2436,7 @@ function detectDrops(){
 /* ============================================================
    MAPA — SITREP
    ============================================================ */
-var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true, minZoom:6,
+var mapS = L.map("mapS", { zoomControl:true, preferCanvas:true,
                             maxBounds: limitesRef(), maxBoundsViscosity: 1.0 })
               .setView([REF.lat,REF.lon],10);
 
@@ -2642,7 +2642,7 @@ var baseDark=null, labelsDark=null, lastZoom=null, ringTimer=null;
 
 function buildRadar(){
   if (mapR) return;
-  mapR = L.map("mapR", { zoomControl:false, preferCanvas:true, maxZoom:16, minZoom:6,
+  mapR = L.map("mapR", { zoomControl:false, preferCanvas:true, maxZoom:16,
                           maxBounds: limitesRef(), maxBoundsViscosity: 1.0 })
           .setView([REF.lat,REF.lon], 10);
   L.control.zoom({ position:"bottomright" }).addTo(mapR);
