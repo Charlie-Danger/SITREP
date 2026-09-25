@@ -926,7 +926,7 @@ body.dia .ac-sym svg{filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 /* Incrementar sempre que houver uma versão nova. Aparece no rodapé e no
    diagnóstico, para se saber de relance se a atualização chegou — a app
    instalada guarda cópia e pode continuar a servir a anterior. */
-var VERSAO = "2026-09-25.90";
+var VERSAO = "2026-09-25.91";
 
 /* ---------- configuração ---------- */
 /* Arganil é só o ponto de partida quando não há posição do dispositivo.
@@ -2216,7 +2216,7 @@ function ingestAircraft(list, src, via, fmt){
   var pend = [];
   Object.keys(tracks).forEach(function(h){
     tracks[h].pts.forEach(function(p){
-      if (p.agl === null && elevCache[ekey(p.lat,p.lon)] === undefined) pend.push(p);
+      if (p.agl === null && !p.ground && elevCache[ekey(p.lat,p.lon)] === undefined) pend.push(p);
     });
   });
   fillElev(pend).then(function(){
@@ -2266,6 +2266,13 @@ function fillElev(pts){
    cota do terreno, QNH (a barométrica assume 1013,25 hPa) e a
    ondulação do geoide (a geométrica é elipsoidal). */
 function computeAGL(p){
+  /* "no solo" (alt_baro:"ground") não tem altitude barométrica real — o
+     código de baixo usava 0 ft como se fosse 0 m acima do nível médio do
+     mar, o que dava AGL = 0 - cota_do_terreno, ou seja um valor negativo
+     do tamanho exato da cota local (ex.: -586 m em zona de serra, -5 m
+     perto da costa). Uma aeronave "no solo" está, por definição, a 0 m
+     acima do solo. */
+  if (p.ground) return 0;
   var g = elevCache[ekey(p.lat,p.lon)];
   if (g === undefined) return null;
   var msl = null;
@@ -2292,7 +2299,8 @@ function pushTracks(list){
     var last = tracks[hex].pts[tracks[hex].pts.length-1];
     if (last && now-last.t < 8000) return;
     tracks[hex].pts.push({ t:now, lat:a.lat, lon:a.lon, gs:parseFloat(a.gs),
-      altBaro:isFinite(ab)?ab:NaN, altGeom:isFinite(ag)?ag:NaN, agl:null });
+      altBaro:isFinite(ab)?ab:NaN, altGeom:isFinite(ag)?ag:NaN, agl:null,
+      ground:a.alt_baro==="ground" });
   });
   var cut = now - TRACK_MAX_MIN*60000;
   Object.keys(tracks).forEach(function(h){
